@@ -1,191 +1,356 @@
-import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, LayoutAnimation, Platform, UIManager } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import * as SQLite from 'expo-sqlite';
-import { ERIScreen } from '../components/ERIScreen';
-import { ERIText } from '../components/ERIText';
-import { ERIButton } from '../components/ERIButton';
-import { COLORS, SPACING, RADIUS } from '../constants/theme';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  RefreshControl, Alert,
+} from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { getDatabase } from '../db/database';
+import { useERIStore } from '../store/useERIStore';
+import { COLORS, SPACING, RADIUS, TYPOGRAPHY } from '../constants/theme';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+type Task = {
+  id: string;
+  client_name: string;
+  project_title: string;
+  platform: string;
+  status: string;
+  progress_pct: number;
+  deadline: number | null;
+  budget: number | null;
+  currency: string;
+  created_at: number;
+};
 
-const db = SQLite.openDatabaseSync('eri_local.db');
+type Props = { navigation: any };
 
-export const TasksScreen = () => {
-  const navigation = useNavigation<any>();
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'active' | 'completed'>('active');
+export const TasksScreen = ({ navigation }: Props) => {
+  const user = useERIStore((state) => state.user);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<'all' | 'active' | 'urgent' | 'pending'>('all');
 
-  const fetchTasks = useCallback(async () => {
+  const loadTasks = async () => {
+    if (!user?.id) return;
     try {
-      const result = await db.getAllAsync(`SELECT * FROM tasks WHERE status = '${filter}' ORDER BY created_at DESC`);
+      const db = await getDatabase();
+      let query = `SELECT * FROM tasks WHERE user_id = ? AND pool = 'active'`;
+      const params: any[] = [user.id];
+
+      if (filter === 'urgent') {
+        query += ` AND (status = 'urgent' OR priority >= 2)`;
+      } else if (filter === 'active') {
+        query += ` AND status = 'active'`;
+      } else if (filter === 'pending') {
+        query += ` AND status = 'pending'`;
+      }
+
+      query += ` ORDER BY created_at DESC`;
+
+      const result = await db.getAllAsync<Task>(query, params);
       setTasks(result);
-    } catch (error) {
-      console.log(error);
+    } catch (e: any) {
+      console.error('Load tasks error:', e);
+    } finally {
+      setLoading(false);
     }
-  }, [filter]);
+  };
 
   useFocusEffect(
     useCallback(() => {
-      fetchTasks();
-    }, [fetchTasks])
+      loadTasks();
+    }, [user?.id, filter])
   );
 
-  const toggleExpand = (id: string) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpandedId(expandedId === id ? null : id);
+  const getPlatformColor = (platform: string) => {
+    switch (platform) {
+      case 'fiverr': return COLORS.fiverr;
+      case 'vgen': return COLORS.vgen;
+      default: return COLORS.direct;
+    }
   };
 
-  const renderTaskItem = ({ item }: { item: any }) => {
-    const isExpanded = expandedId === item.id;
+  const formatBudget = (budget: number | null, currency: string) => {
+    if (!budget) return '—';
+    if (currency === 'IDR') return `Rp ${budget.toLocaleString('id-ID')}`;
+    return `$${budget.toFixed(2)}`;
+  };
+
+  const formatDeadline = (deadline: number | null) => {
+    if (!deadline) return null;
+    const date = new Date(deadline * 1000);
+    const now = new Date();
+    const diff = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    if (diff < 0) return { text: 'Overdue', color: COLORS.danger };
+    if (diff === 0) return { text: 'Due today', color: COLORS.danger };
+    if (diff === 1) return { text: 'Due tomorrow', color: COLORS.warning };
+    if (diff <= 3) return { text: `${diff} days left`, color: COLORS.warning };
+    return { text: `${diff} days left`, color: COLORS.textMuted };
+  };
+
+  const filters = [
+    { key: 'all', label: 'All' },
+    { key: 'active', label: 'Active' },
+    { key: 'urgent', label: 'Urgent' },
+    { key: 'pending', label: 'Pending' },
+  ];
+
+  const renderTask = ({ item }: { item: Task }) => {
+    const deadline = formatDeadline(item.deadline);
+    const platformColor = getPlatformColor(item.platform);
 
     return (
-      <TouchableOpacity 
-        style={styles.taskCard} 
-        onPress={() => toggleExpand(item.id)}
-        activeOpacity={0.8}
+      <TouchableOpacity
+        style={styles.taskCard}
+        onPress={() => navigation.navigate('TaskDetails', { taskId: item.id })}
+        activeOpacity={0.75}
       >
         <View style={styles.taskHeader}>
-          <View style={styles.taskTitleContainer}>
-            <ERIText variant="h3" color={COLORS.text}>{item.project_title}</ERIText>
-            <ERIText variant="body2" color={COLORS.textMuted}>{item.client_name}</ERIText>
+          <View style={[styles.platformBadge, { backgroundColor: platformColor + '22', borderColor: platformColor + '55' }]}>
+            <Text style={[styles.platformText, { color: platformColor }]}>
+              {item.platform.toUpperCase()}
+            </Text>
           </View>
-          <ERIText variant="h3" color={COLORS.textMuted}>
-            {isExpanded ? '▲' : '▼'}
-          </ERIText>
+          {deadline && (
+            <Text style={[styles.deadlineText, { color: deadline.color }]}>
+              {deadline.text}
+            </Text>
+          )}
         </View>
 
-        {!isExpanded && (
-          <View style={styles.taskFooterCollapsed}>
-            <ERIText variant="caption" color={COLORS.primary}>Rp {item.budget}</ERIText>
-            <ERIText variant="caption" color={filter === 'active' ? COLORS.success : COLORS.textMuted}>
-              {filter === 'active' ? 'Active' : 'Completed'}
-            </ERIText>
-          </View>
-        )}
+        <Text style={styles.clientName}>{item.client_name}</Text>
+        <Text style={styles.projectTitle} numberOfLines={1}>{item.project_title}</Text>
 
-        {isExpanded && (
-          <View style={styles.expandedContent}>
-            <View style={styles.divider} />
-            
-            <View style={styles.detailRow}>
-              <ERIText variant="caption" color={COLORS.textMuted}>Budget</ERIText>
-              <ERIText variant="body1" color={COLORS.primary}>Rp {item.budget}</ERIText>
+        <View style={styles.taskFooter}>
+          <Text style={styles.budgetText}>{formatBudget(item.budget, item.currency)}</Text>
+          <View style={styles.progressRow}>
+            <View style={styles.progressBar}>
+              <View style={[styles.progressFill, { width: `${item.progress_pct}%` }]} />
             </View>
-            
-            <View style={styles.detailRow}>
-              <ERIText variant="caption" color={COLORS.textMuted}>Status</ERIText>
-              <ERIText variant="body1" color={filter === 'active' ? COLORS.success : COLORS.textMuted}>
-                {filter === 'active' ? 'Active' : 'Completed'}
-              </ERIText>
-            </View>
-
-            <View style={styles.actionRow}>
-              {filter === 'active' && (
-                <ERIButton 
-                  title="Start Focus" 
-                  variant="primary" 
-                  style={styles.actionButton} 
-                  fullWidth={false}
-                  onPress={() => navigation.navigate('FocusTimer', { task: item })}
-                />
-              )}
-              <ERIButton 
-                title="Details" 
-                variant="outline" 
-                style={styles.actionButton} 
-                fullWidth={false}
-                onPress={() => navigation.navigate('TaskDetails', { task: item })}
-              />
-            </View>
+            <Text style={styles.progressText}>{item.progress_pct}%</Text>
           </View>
-        )}
+        </View>
       </TouchableOpacity>
     );
   };
 
   return (
-    <ERIScreen style={styles.container}>
+    <View style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
-        <ERIText variant="h1" color={COLORS.primary}>Your Tasks</ERIText>
-        <ERIText variant="body1" color={COLORS.textMuted}>
-          Track your masterpieces here!
-        </ERIText>
+        <Text style={styles.title}>Working List</Text>
+        <TouchableOpacity
+          style={styles.addBtn}
+          onPress={() => navigation.navigate('CreateTask')}
+        >
+          <Text style={styles.addBtnText}>+ New Task</Text>
+        </TouchableOpacity>
       </View>
 
-      <View style={styles.tabContainer}>
-        <ERIButton 
-          title="Active" 
-          variant={filter === 'active' ? 'primary' : 'ghost'} 
-          onPress={() => { setFilter('active'); setExpandedId(null); }}
-          style={styles.tabButton}
-          fullWidth={false}
-        />
-        <ERIButton 
-          title="Completed" 
-          variant={filter === 'completed' ? 'primary' : 'ghost'} 
-          onPress={() => { setFilter('completed'); setExpandedId(null); }}
-          style={styles.tabButton}
-          fullWidth={false}
-        />
+      {/* Filter Chips */}
+      <View style={styles.filterRow}>
+        {filters.map((f) => (
+          <TouchableOpacity
+            key={f.key}
+            style={[styles.filterChip, filter === f.key ? styles.filterChipActive : null]}
+            onPress={() => setFilter(f.key as any)}
+          >
+            <Text style={[styles.filterChipText, filter === f.key ? styles.filterChipTextActive : null]}>
+              {f.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
-      <View style={styles.content}>
-        {tasks.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <ERIText variant="body1" color={COLORS.textMuted} align="center" style={styles.emptyText}>
-              {filter === 'active' 
-                ? "No active tasks yet. Let's add your first project!" 
-                : "No completed tasks yet. Keep up the good work!"}
-            </ERIText>
-          </View>
-        ) : (
-          <FlatList
-            data={tasks}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={renderTaskItem}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.listContainer}
+      {/* Task List */}
+      <FlatList
+        data={tasks}
+        keyExtractor={(item) => item.id}
+        renderItem={renderTask}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={loadTasks}
+            tintColor={COLORS.primary}
           />
-        )}
-      </View>
-
-      <View style={styles.footer}>
-        <ERIButton 
-          title="+ Add New Task" 
-          onPress={() => navigation.navigate('CreateTask')} 
-        />
-      </View>
-    </ERIScreen>
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyIcon}>🎨</Text>
+            <Text style={styles.emptyTitle}>No tasks yet</Text>
+            <Text style={styles.emptyDesc}>Tap "+ New Task" to add your first project.</Text>
+            <TouchableOpacity
+              style={styles.emptyBtn}
+              onPress={() => navigation.navigate('CreateTask')}
+            >
+              <Text style={styles.emptyBtnText}>Create First Task</Text>
+            </TouchableOpacity>
+          </View>
+        }
+      />
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'space-between' },
-  header: { marginTop: SPACING.xl, marginBottom: SPACING.md },
-  tabContainer: { 
-    flexDirection: 'row', 
-    marginBottom: SPACING.md,
-    backgroundColor: COLORS.surfaceHighlight,
-    borderRadius: RADIUS.md,
-    padding: SPACING.xs,
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
   },
-  tabButton: { flex: 1, paddingVertical: SPACING.sm },
-  content: { flex: 1 },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  emptyText: { marginBottom: SPACING.lg },
-  listContainer: { paddingBottom: SPACING.xl },
-  taskCard: { backgroundColor: COLORS.surfaceHighlight, padding: SPACING.md, borderRadius: RADIUS.md, marginBottom: SPACING.sm },
-  taskHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  taskTitleContainer: { flex: 1 },
-  taskFooterCollapsed: { flexDirection: 'row', justifyContent: 'space-between', marginTop: SPACING.sm },
-  expandedContent: { marginTop: SPACING.md },
-  divider: { height: 1, backgroundColor: COLORS.border, marginBottom: SPACING.md },
-  detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.sm },
-  actionRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: SPACING.sm, marginTop: SPACING.sm },
-  actionButton: { paddingVertical: SPACING.sm, paddingHorizontal: SPACING.md },
-  footer: { paddingBottom: SPACING.xl },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingTop: 60,
+    paddingBottom: SPACING.md,
+  },
+  title: {
+    ...TYPOGRAPHY.h2,
+    color: COLORS.text,
+  },
+  addBtn: {
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.round,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  addBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  filterRow: {
+    flexDirection: 'row',
+    paddingHorizontal: SPACING.md,
+    gap: 8,
+    marginBottom: SPACING.md,
+  },
+  filterChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: RADIUS.round,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  filterChipActive: {
+    backgroundColor: COLORS.primaryDim,
+    borderColor: COLORS.primary,
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+  },
+  filterChipTextActive: {
+    color: COLORS.primary,
+  },
+  listContent: {
+    padding: SPACING.md,
+    gap: 12,
+    paddingBottom: 100,
+  },
+  taskCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  taskHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  platformBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: RADIUS.round,
+    borderWidth: 1,
+  },
+  platformText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  deadlineText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  clientName: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+    marginBottom: 2,
+  },
+  projectTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: SPACING.sm,
+  },
+  taskFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  budgetText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.accent,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  progressBar: {
+    width: 80,
+    height: 4,
+    backgroundColor: COLORS.surfaceHighlight,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: COLORS.primary,
+    borderRadius: 2,
+  },
+  progressText: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    fontWeight: '600',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingTop: 80,
+    gap: 8,
+  },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: 8,
+  },
+  emptyTitle: {
+    ...TYPOGRAPHY.h3,
+    color: COLORS.text,
+  },
+  emptyDesc: {
+    fontSize: 14,
+    color: COLORS.textMuted,
+    textAlign: 'center',
+    paddingHorizontal: SPACING.xl,
+  },
+  emptyBtn: {
+    marginTop: SPACING.md,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.md,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  emptyBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
 });

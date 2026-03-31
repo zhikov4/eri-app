@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, FlatList } from 'react-native';
+import { View, StyleSheet, FlatList, Image, TouchableOpacity, Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { ERIScreen } from '../components/ERIScreen';
 import { ERIText } from '../components/ERIText';
 import { ERIButton } from '../components/ERIButton';
@@ -7,12 +8,41 @@ import { COLORS, SPACING, RADIUS } from '../constants/theme';
 
 export const VaultScreen = () => {
   const [activeTab, setActiveTab] = useState<'personal' | 'archived'>('personal');
-  const [files, setFiles] = useState<any[]>([]); 
+  const [files, setFiles] = useState<{ uri: string }[]>([]); 
 
-  // Mock storage values untuk preview UI
+  // Mock storage values based on ERI Documentation (Free Tier = 500MB)
   const storageUsed = 120; 
   const storageLimit = 500; 
   const storagePct = (storageUsed / storageLimit) * 100;
+
+  const handleUpload = async () => {
+    if (storagePct >= 95) {
+      Alert.alert('Storage Full', 'You have reached 95% of your storage limit. Please upgrade or delete some files.');
+      return;
+    }
+
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (permissionResult.granted === false) {
+      Alert.alert('Permission Required', 'ERI needs access to your gallery to upload references!');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setFiles((prevFiles) => [{ uri: result.assets[0].uri }, ...prevFiles]);
+    }
+  };
+
+  const renderFileItem = ({ item }: { item: { uri: string } }) => (
+    <TouchableOpacity style={styles.imageCard}>
+      <Image source={{ uri: item.uri }} style={styles.image} resizeMode="cover" />
+    </TouchableOpacity>
+  );
 
   return (
     <ERIScreen style={styles.container}>
@@ -64,7 +94,11 @@ export const VaultScreen = () => {
           <FlatList
             data={files}
             keyExtractor={(item, index) => index.toString()}
-            renderItem={() => null}
+            renderItem={renderFileItem}
+            numColumns={2}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContainer}
+            columnWrapperStyle={styles.rowWrapper}
           />
         )}
       </View>
@@ -72,7 +106,7 @@ export const VaultScreen = () => {
       <View style={styles.footer}>
         <ERIButton 
           title="+ Upload File" 
-          onPress={() => {}} 
+          onPress={handleUpload} 
         />
       </View>
     </ERIScreen>
@@ -102,5 +136,15 @@ const styles = StyleSheet.create({
   tabButton: { flex: 1, paddingVertical: SPACING.sm },
   content: { flex: 1 },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  listContainer: { paddingBottom: SPACING.xl },
+  rowWrapper: { justifyContent: 'space-between', marginBottom: SPACING.md },
+  imageCard: {
+    width: '48%',
+    aspectRatio: 1,
+    borderRadius: RADIUS.md,
+    overflow: 'hidden',
+    backgroundColor: COLORS.surfaceHighlight,
+  },
+  image: { width: '100%', height: '100%' },
   footer: { paddingBottom: SPACING.xl },
 });
