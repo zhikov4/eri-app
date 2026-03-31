@@ -30,9 +30,20 @@ export const TasksScreen = ({ navigation }: Props) => {
   const [filter, setFilter] = useState<'all' | 'active' | 'urgent' | 'pending'>('all');
 
   const loadTasks = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      console.log('No user ID yet');
+      setLoading(false);
+      return;
+    }
+    
     try {
+      setLoading(true);
+      console.log('Loading tasks for user:', user.id);
+      
+      // Get database instance - it should be already initialized from app startup
       const db = await getDatabase();
+      console.log('Database obtained:', !!db);
+      
       let query = `SELECT * FROM tasks WHERE user_id = ? AND pool = 'active'`;
       const params: any[] = [user.id];
 
@@ -45,11 +56,21 @@ export const TasksScreen = ({ navigation }: Props) => {
       }
 
       query += ` ORDER BY created_at DESC`;
-
+      
+      console.log('Executing query:', query);
       const result = await db.getAllAsync<Task>(query, params);
+      console.log('Tasks loaded:', result.length);
       setTasks(result);
     } catch (e: any) {
-      console.error('Load tasks error:', e);
+      console.error('Load tasks error details:', e);
+      console.error('Error stack:', e.stack);
+      
+      // Check if it's a table missing error
+      if (e.message && e.message.includes('no such table')) {
+        Alert.alert('Database Error', 'Tasks table not found. Please restart the app.');
+      } else {
+        Alert.alert('Error', 'Could not load tasks. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -63,9 +84,9 @@ export const TasksScreen = ({ navigation }: Props) => {
 
   const getPlatformColor = (platform: string) => {
     switch (platform) {
-      case 'fiverr': return COLORS.fiverr;
-      case 'vgen': return COLORS.vgen;
-      default: return COLORS.direct;
+      case 'fiverr': return COLORS.fiverr || '#1DBF73';
+      case 'vgen': return COLORS.vgen || '#6366F1';
+      default: return COLORS.direct || '#3B82F6';
     }
   };
 
@@ -80,11 +101,11 @@ export const TasksScreen = ({ navigation }: Props) => {
     const date = new Date(deadline * 1000);
     const now = new Date();
     const diff = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    if (diff < 0) return { text: 'Overdue', color: COLORS.danger };
-    if (diff === 0) return { text: 'Due today', color: COLORS.danger };
-    if (diff === 1) return { text: 'Due tomorrow', color: COLORS.warning };
-    if (diff <= 3) return { text: `${diff} days left`, color: COLORS.warning };
-    return { text: `${diff} days left`, color: COLORS.textMuted };
+    if (diff < 0) return { text: 'Overdue', color: COLORS.danger || '#EF4444' };
+    if (diff === 0) return { text: 'Due today', color: COLORS.danger || '#EF4444' };
+    if (diff === 1) return { text: 'Due tomorrow', color: COLORS.warning || '#F59E0B' };
+    if (diff <= 3) return { text: `${diff} days left`, color: COLORS.warning || '#F59E0B' };
+    return { text: `${diff} days left`, color: COLORS.textMuted || '#6B7280' };
   };
 
   const filters = [
@@ -171,7 +192,7 @@ export const TasksScreen = ({ navigation }: Props) => {
           <RefreshControl
             refreshing={loading}
             onRefresh={loadTasks}
-            tintColor={COLORS.primary}
+            tintColor={COLORS.primary || '#6366F1'}
           />
         }
         ListEmptyComponent={
@@ -195,23 +216,24 @@ export const TasksScreen = ({ navigation }: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.background || '#FFFFFF',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING?.md || 16,
     paddingTop: 60,
-    paddingBottom: SPACING.md,
+    paddingBottom: SPACING?.md || 16,
   },
   title: {
-    ...TYPOGRAPHY.h2,
-    color: COLORS.text,
+    fontSize: 24,
+    fontWeight: '700',
+    color: COLORS.text || '#111827',
   },
   addBtn: {
-    backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.round,
+    backgroundColor: COLORS.primary || '#6366F1',
+    borderRadius: 20,
     paddingVertical: 8,
     paddingHorizontal: 16,
   },
@@ -222,41 +244,41 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     flexDirection: 'row',
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: 16,
     gap: 8,
-    marginBottom: SPACING.md,
+    marginBottom: 16,
   },
   filterChip: {
     paddingVertical: 6,
     paddingHorizontal: 14,
-    borderRadius: RADIUS.round,
-    backgroundColor: COLORS.surface,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: '#E5E7EB',
   },
   filterChipActive: {
-    backgroundColor: COLORS.primaryDim,
-    borderColor: COLORS.primary,
+    backgroundColor: '#EEF2FF',
+    borderColor: '#6366F1',
   },
   filterChipText: {
     fontSize: 13,
     fontWeight: '600',
-    color: COLORS.textMuted,
+    color: '#6B7280',
   },
   filterChipTextActive: {
-    color: COLORS.primary,
+    color: '#6366F1',
   },
   listContent: {
-    padding: SPACING.md,
+    padding: 16,
     gap: 12,
     paddingBottom: 100,
   },
   taskCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: '#E5E7EB',
   },
   taskHeader: {
     flexDirection: 'row',
@@ -267,7 +289,7 @@ const styles = StyleSheet.create({
   platformBadge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: RADIUS.round,
+    borderRadius: 12,
     borderWidth: 1,
   },
   platformText: {
@@ -281,14 +303,14 @@ const styles = StyleSheet.create({
   },
   clientName: {
     fontSize: 13,
-    color: COLORS.textMuted,
+    color: '#6B7280',
     marginBottom: 2,
   },
   projectTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: SPACING.sm,
+    color: '#111827',
+    marginBottom: 12,
   },
   taskFooter: {
     flexDirection: 'row',
@@ -298,7 +320,7 @@ const styles = StyleSheet.create({
   budgetText: {
     fontSize: 14,
     fontWeight: '600',
-    color: COLORS.accent,
+    color: '#10B981',
   },
   progressRow: {
     flexDirection: 'row',
@@ -308,18 +330,18 @@ const styles = StyleSheet.create({
   progressBar: {
     width: 80,
     height: 4,
-    backgroundColor: COLORS.surfaceHighlight,
+    backgroundColor: '#E5E7EB',
     borderRadius: 2,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: COLORS.primary,
+    backgroundColor: '#6366F1',
     borderRadius: 2,
   },
   progressText: {
     fontSize: 11,
-    color: COLORS.textMuted,
+    color: '#6B7280',
     fontWeight: '600',
   },
   emptyState: {
@@ -332,19 +354,20 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   emptyTitle: {
-    ...TYPOGRAPHY.h3,
-    color: COLORS.text,
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
   },
   emptyDesc: {
     fontSize: 14,
-    color: COLORS.textMuted,
+    color: '#6B7280',
     textAlign: 'center',
-    paddingHorizontal: SPACING.xl,
+    paddingHorizontal: 32,
   },
   emptyBtn: {
-    marginTop: SPACING.md,
-    backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.md,
+    marginTop: 16,
+    backgroundColor: '#6366F1',
+    borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 24,
   },
