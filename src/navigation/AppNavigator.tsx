@@ -14,6 +14,7 @@ import { ProfileScreen } from '../screens/ProfileScreen';
 import { CreateTaskScreen } from '../screens/CreateTaskScreen';
 import { FocusTimerScreen } from '../screens/FocusTimerScreen';
 import { TaskDetailsScreen } from '../screens/TaskDetailsScreen';
+import { InvoiceBuilderScreen } from '../screens/InvoiceBuilderScreen';
 import { useERIStore } from '../store/useERIStore';
 import { COLORS } from '../constants/theme';
 
@@ -62,6 +63,7 @@ export const AppNavigator = () => {
             <Stack.Screen name="CreateTask" component={CreateTaskScreen} options={{ presentation: 'modal' }} />
             <Stack.Screen name="FocusTimer" component={FocusTimerScreen} options={{ presentation: 'fullScreenModal' }} />
             <Stack.Screen name="TaskDetails" component={TaskDetailsScreen} options={{ presentation: 'modal' }} />
+            <Stack.Screen name="InvoiceBuilder" component={InvoiceBuilderScreen} options={{ presentation: 'modal' }} />
           </>
         ) : (
           <>

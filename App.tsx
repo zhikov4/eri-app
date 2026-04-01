@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Platform, SafeAreaView } from 'react-native';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { COLORS } from './src/constants/theme';
 import { getDatabase } from './src/db/database';
@@ -23,9 +23,9 @@ export default function App() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
       <StatusBar style="light" />
       <AppNavigator />
-    </View>
+    </SafeAreaView>
   );
 }

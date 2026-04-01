@@ -85,7 +85,6 @@ export const TaskDetailsScreen = ({ route, navigation }: Props) => {
   const loadReferences = async () => {
     try {
       const db = await getDatabase();
-      // Get files from vault_folders where task_id matches
       const result = await db.getAllAsync<ReferenceFile>(
         `SELECT vf.* FROM vault_files vf
          JOIN vault_folders vfld ON vf.folder_id = vfld.id
@@ -105,7 +104,6 @@ export const TaskDetailsScreen = ({ route, navigation }: Props) => {
       setCompleting(true);
       const db = await getDatabase();
       
-      // Update task status
       await db.runAsync(
         `UPDATE tasks 
          SET status = 'completed', 
@@ -115,7 +113,6 @@ export const TaskDetailsScreen = ({ route, navigation }: Props) => {
         [Math.floor(Date.now() / 1000), task.id]
       );
       
-      // Save tags as task_notes
       if (tags.length > 0) {
         for (const tag of tags) {
           await db.runAsync(
@@ -126,7 +123,6 @@ export const TaskDetailsScreen = ({ route, navigation }: Props) => {
         }
       }
       
-      // Update vault folder type to archived
       await db.runAsync(
         `UPDATE vault_folders 
          SET type = 'task_archived', archived_at = ?
@@ -385,7 +381,7 @@ export const TaskDetailsScreen = ({ route, navigation }: Props) => {
         {canCreateInvoice() && (
           <TouchableOpacity 
             style={[styles.actionButton, styles.invoiceButton]}
-            onPress={() => Alert.alert('Invoice', 'Invoice builder will open here')}
+            onPress={() => navigation.navigate('InvoiceBuilder', { taskId: task.id })}
           >
             <Text style={styles.actionButtonText}>Invoice</Text>
           </TouchableOpacity>

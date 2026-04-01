@@ -1,101 +1,194 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity,
-  StyleSheet, ScrollView, ActivityIndicator,
-  KeyboardAvoidingView, Platform, Alert,
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { getDatabase } from '../db/database';
 import { useERIStore } from '../store/useERIStore';
 import { COLORS, SPACING, RADIUS, TYPOGRAPHY } from '../constants/theme';
-import * as Crypto from 'expo-crypto';
+import { createTaskVaultFolder } from '../db/queries/vault';
 
-type Props = { navigation: any };
+type Props = {
+  navigation: any;
+};
+
+type PlatformType = 'fiverr' | 'vgen' | 'direct' | 'manual';
 
 export const CreateTaskScreen = ({ navigation }: Props) => {
   const user = useERIStore((state) => state.user);
-  const [clientName, setClientName] = useState('');
-  const [projectTitle, setProjectTitle] = useState('');
-  const [platform, setPlatform] = useState<'direct' | 'fiverr' | 'vgen'>('direct');
-  const [budget, setBudget] = useState('');
-  const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // Form fields
+  const [platform, setPlatform] = useState<PlatformType>('direct');
+  const [clientName, setClientName] = useState('');
+  const [clientEmail, setClientEmail] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
+  const [clientCountry, setClientCountry] = useState('');
+  const [clientIg, setClientIg] = useState('');
+  const [projectTitle, setProjectTitle] = useState('');
+  const [projectDescription, setProjectDescription] = useState('');
+  const [projectGoal, setProjectGoal] = useState('');
+  const [budget, setBudget] = useState('');
+  const [currency, setCurrency] = useState<'IDR' | 'USD'>('IDR');
+  const [deadline, setDeadline] = useState('');
+  const [platformOrderId, setPlatformOrderId] = useState('');
 
-  const platforms = [
-    { key: 'direct', label: 'Direct', color: COLORS.direct },
-    { key: 'fiverr', label: 'Fiverr', color: COLORS.fiverr },
-    { key: 'vgen', label: 'VGen', color: COLORS.vgen },
-  ];
-
-  const handleSave = async () => {
+  const handleCreateTask = async () => {
+    // Validation
     if (!clientName.trim()) {
-      Alert.alert('Required', 'Please enter client name.');
+      Alert.alert('Error', 'Client name is required');
       return;
     }
     if (!projectTitle.trim()) {
-      Alert.alert('Required', 'Please enter project title.');
+      Alert.alert('Error', 'Project title is required');
       return;
     }
+    if (platform === 'direct' && !clientEmail.trim()) {
+      Alert.alert('Error', 'Client email is required for Direct tasks');
+      return;
+    }
+
     if (!user?.id) {
-      Alert.alert('Error', 'User not found. Please login again.');
+      Alert.alert('Error', 'User not logged in');
       return;
     }
 
     setLoading(true);
+
     try {
       const db = await getDatabase();
       const now = Math.floor(Date.now() / 1000);
-      const id = Crypto.randomUUID();
+      const taskId = Math.random().toString(36).substr(2, 9);
+      
+      // Parse budget
+      const budgetValue = budget ? parseFloat(budget) : null;
+      
+      // Parse deadline (if provided, assume it's days from now)
+      let deadlineTimestamp = null;
+      if (deadline && !isNaN(parseInt(deadline))) {
+        const days = parseInt(deadline);
+        deadlineTimestamp = now + (days * 24 * 60 * 60);
+      }
 
+      // Auto-detect currency based on client country
+      let detectedCurrency = currency;
+      if (clientCountry?.toLowerCase() === 'indonesia' || clientCountry?.toLowerCase() === 'id') {
+        detectedCurrency = 'IDR';
+      } else if (clientCountry && clientCountry.trim() !== '') {
+        detectedCurrency = 'USD';
+      }
+
+      // Insert task
       await db.runAsync(
-        `INSERT INTO tasks
-          (id, user_id, platform, status, pool, client_name, project_title,
-           project_description, budget, currency, progress_pct, priority,
-           sort_order, revision_count, tags_json, is_focus_active,
-           expiry_notif_sent, created_at, updated_at)
-          VALUES (?, ?, ?, 'active', 'active', ?, ?, ?, ?, 'IDR', 0, 0, 0, 0, '[]', 0, 0, ?, ?)`,
-        [id, user.id, platform, clientName.trim(), projectTitle.trim(),
-         description.trim() || null, budget ? parseFloat(budget) : null, now, now]
+        `INSERT INTO tasks (
+          id, user_id, platform, platform_order_id, status, pool,
+          client_name, client_email, client_phone, client_country, client_ig,
+          project_title, project_description, project_goal,
+          budget, currency, deadline, progress_pct, priority,
+          revision_count, tags_json, is_focus_active, focus_activated_at,
+          last_activity_at, expiry_notif_sent, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          taskId,
+          user.id,
+          platform,
+          platform === 'fiverr' || platform === 'vgen' ? platformOrderId || null : null,
+          'active',
+          'active',
+          clientName.trim(),
+          clientEmail.trim() || null,
+          clientPhone.trim() || null,
+          clientCountry.trim() || null,
+          clientIg.trim() || null,
+          projectTitle.trim(),
+          projectDescription.trim() || null,
+          projectGoal.trim() || null,
+          budgetValue,
+          detectedCurrency,
+          deadlineTimestamp,
+          0, // progress_pct
+          0, // priority
+          0, // revision_count
+          '[]', // tags_json
+          0, // is_focus_active
+          null, // focus_activated_at
+          null, // last_activity_at
+          0, // expiry_notif_sent
+          now,
+          now
+        ]
       );
 
-      Alert.alert('✅ Success', 'Task created!', [
-        { text: 'OK', onPress: () => navigation.goBack() }
-      ]);
-    } catch (e: any) {
-      console.error('Create task error:', e);
-      Alert.alert('Error', e.message || 'Failed to save task.');
+      // Create vault folder for this task (Phase 1C)
+      await createTaskVaultFolder(user.id, taskId, projectTitle.trim());
+
+      Alert.alert(
+        'Success',
+        'Task created successfully!',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack(),
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error creating task:', error);
+      Alert.alert('Error', 'Failed to create task: ' + (error.message || 'Unknown error'));
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+  const platforms: { id: PlatformType; label: string; icon: string }[] = [
+    { id: 'direct', label: 'Direct', icon: '✍️' },
+    { id: 'manual', label: 'Manual', icon: '📝' },
+    { id: 'fiverr', label: 'Fiverr', icon: '🎯' },
+    { id: 'vgen', label: 'VGen', icon: '🎨' },
+  ];
 
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={styles.cancelBtn}>Cancel</Text>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <Text style={styles.backButtonText}>←</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>New Task</Text>
-          <TouchableOpacity onPress={handleSave} disabled={loading}>
-            {loading
-              ? <ActivityIndicator color={COLORS.primary} size="small" />
-              : <Text style={styles.saveBtn}>Save</Text>}
-          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Create New Task</Text>
+          <View style={styles.placeholder} />
         </View>
 
-        {/* Platform */}
+        {/* Platform Selection */}
         <View style={styles.section}>
-          <Text style={styles.label}>Platform</Text>
-          <View style={styles.platformRow}>
+          <Text style={styles.label}>Platform <Text style={styles.required}>*</Text></Text>
+          <View style={styles.platformContainer}>
             {platforms.map((p) => (
               <TouchableOpacity
-                key={p.key}
-                style={[styles.platformBtn, platform === p.key ? { backgroundColor: p.color + '33', borderColor: p.color } : null]}
-                onPress={() => setPlatform(p.key as any)}
+                key={p.id}
+                style={[
+                  styles.platformOption,
+                  platform === p.id && styles.platformOptionActive,
+                ]}
+                onPress={() => setPlatform(p.id)}
               >
-                <Text style={[styles.platformLabel, platform === p.key ? { color: p.color } : null]}>
+                <Text style={styles.platformIcon}>{p.icon}</Text>
+                <Text
+                  style={[
+                    styles.platformLabel,
+                    platform === p.id && styles.platformLabelActive,
+                  ]}
+                >
                   {p.label}
                 </Text>
               </TouchableOpacity>
@@ -103,58 +196,188 @@ export const CreateTaskScreen = ({ navigation }: Props) => {
           </View>
         </View>
 
-        {/* Client Name */}
+        {/* Platform Order ID (for Fiverr/VGen) */}
+        {(platform === 'fiverr' || platform === 'vgen') && (
+          <View style={styles.section}>
+            <Text style={styles.label}>Order ID / Reference</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g., #FV-12345"
+              placeholderTextColor={COLORS.textMuted}
+              value={platformOrderId}
+              onChangeText={setPlatformOrderId}
+            />
+            <Text style={styles.hint}>
+              This helps you track which order this task belongs to
+            </Text>
+          </View>
+        )}
+
+        {/* Client Information */}
         <View style={styles.section}>
-          <Text style={styles.label}>Client Name *</Text>
+          <Text style={styles.sectionTitle}>Client Information</Text>
+          
+          <Text style={styles.label}>Client Name <Text style={styles.required}>*</Text></Text>
           <TextInput
             style={styles.input}
-            placeholder="e.g. Budi Santoso"
-            placeholderTextColor={COLORS.textDim}
+            placeholder="e.g., John Doe"
+            placeholderTextColor={COLORS.textMuted}
             value={clientName}
             onChangeText={setClientName}
           />
-        </View>
 
-        {/* Project Title */}
-        <View style={styles.section}>
-          <Text style={styles.label}>Project Title *</Text>
+          <Text style={styles.label}>
+            Client Email {platform === 'direct' && <Text style={styles.required}>*</Text>}
+          </Text>
           <TextInput
             style={styles.input}
-            placeholder="e.g. Character Design for RPG Game"
-            placeholderTextColor={COLORS.textDim}
+            placeholder="client@example.com"
+            placeholderTextColor={COLORS.textMuted}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            value={clientEmail}
+            onChangeText={setClientEmail}
+          />
+
+          <Text style={styles.label}>Client Phone (WhatsApp)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g., +62 812 3456 7890"
+            placeholderTextColor={COLORS.textMuted}
+            keyboardType="phone-pad"
+            value={clientPhone}
+            onChangeText={setClientPhone}
+          />
+
+          <Text style={styles.label}>Client Country</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g., Indonesia, USA"
+            placeholderTextColor={COLORS.textMuted}
+            value={clientCountry}
+            onChangeText={setClientCountry}
+          />
+          <Text style={styles.hint}>
+            {clientCountry?.toLowerCase().includes('indonesia') 
+              ? '✓ Currency will default to IDR, invoice in Bahasa Indonesia' 
+              : clientCountry && clientCountry.trim() !== ''
+              ? '✓ Currency will default to USD, invoice in English'
+              : 'Country will auto-detect currency and invoice language'}
+          </Text>
+
+          <Text style={styles.label}>Instagram (optional)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="@username"
+            placeholderTextColor={COLORS.textMuted}
+            value={clientIg}
+            onChangeText={setClientIg}
+          />
+        </View>
+
+        {/* Project Details */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Project Details</Text>
+          
+          <Text style={styles.label}>Project Title <Text style={styles.required}>*</Text></Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g., Character Design for Game"
+            placeholderTextColor={COLORS.textMuted}
             value={projectTitle}
             onChangeText={setProjectTitle}
           />
-        </View>
 
-        {/* Budget */}
-        <View style={styles.section}>
-          <Text style={styles.label}>Budget (IDR)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. 500000"
-            placeholderTextColor={COLORS.textDim}
-            value={budget}
-            onChangeText={setBudget}
-            keyboardType="numeric"
-          />
-        </View>
-
-        {/* Description */}
-        <View style={styles.section}>
-          <Text style={styles.label}>Brief / Description</Text>
+          <Text style={styles.label}>Description / Brief</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
-            placeholder="Describe the project..."
-            placeholderTextColor={COLORS.textDim}
-            value={description}
-            onChangeText={setDescription}
+            placeholder="Describe the project requirements, style preferences, etc."
+            placeholderTextColor={COLORS.textMuted}
             multiline
             numberOfLines={4}
             textAlignVertical="top"
+            value={projectDescription}
+            onChangeText={setProjectDescription}
+          />
+
+          <Text style={styles.label}>Project Goal / Deliverables</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            placeholder="What needs to be delivered? e.g., 3 character concepts, final illustration with background"
+            placeholderTextColor={COLORS.textMuted}
+            multiline
+            numberOfLines={3}
+            textAlignVertical="top"
+            value={projectGoal}
+            onChangeText={setProjectGoal}
           />
         </View>
 
+        {/* Financial & Timeline */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Financial & Timeline</Text>
+          
+          <View style={styles.row}>
+            <View style={styles.rowItem}>
+              <Text style={styles.label}>Budget</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0"
+                placeholderTextColor={COLORS.textMuted}
+                keyboardType="numeric"
+                value={budget}
+                onChangeText={setBudget}
+              />
+            </View>
+            <View style={styles.rowItem}>
+              <Text style={styles.label}>Currency</Text>
+              <View style={styles.currencyContainer}>
+                <TouchableOpacity
+                  style={[styles.currencyOption, currency === 'IDR' && styles.currencyOptionActive]}
+                  onPress={() => setCurrency('IDR')}
+                >
+                  <Text style={[styles.currencyText, currency === 'IDR' && styles.currencyTextActive]}>
+                    IDR
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.currencyOption, currency === 'USD' && styles.currencyOptionActive]}
+                  onPress={() => setCurrency('USD')}
+                >
+                  <Text style={[styles.currencyText, currency === 'USD' && styles.currencyTextActive]}>
+                    USD
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+
+          <Text style={styles.label}>Deadline (days from now)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g., 7 (days)"
+            placeholderTextColor={COLORS.textMuted}
+            keyboardType="numeric"
+            value={deadline}
+            onChangeText={setDeadline}
+          />
+          <Text style={styles.hint}>
+            Leave empty if no deadline. Will be shown in task list.
+          </Text>
+        </View>
+
+        {/* Submit Button */}
+        <TouchableOpacity
+          style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+          onPress={handleCreateTask}
+          disabled={loading}
+        >
+          <Text style={styles.submitButtonText}>
+            {loading ? 'Creating...' : 'Create Task'}
+          </Text>
+        </TouchableOpacity>
+
+        <View style={styles.bottomSpacer} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -163,73 +386,160 @@ export const CreateTaskScreen = ({ navigation }: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  content: {
-    padding: SPACING.md,
-    paddingBottom: 40,
+    backgroundColor: COLORS.background || '#F9FAFB',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 60,
-    paddingBottom: SPACING.lg,
+    paddingBottom: SPACING?.md || 16,
+    paddingHorizontal: SPACING?.md || 16,
+    backgroundColor: COLORS.surface || '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border || '#E5E7EB',
   },
-  title: {
-    ...TYPOGRAPHY.h3,
-    color: COLORS.text,
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
   },
-  cancelBtn: {
-    color: COLORS.textMuted,
-    fontSize: 16,
+  backButtonText: {
+    fontSize: 28,
+    color: COLORS.primary || '#6366F1',
   },
-  saveBtn: {
-    color: COLORS.primary,
-    fontSize: 16,
-    fontWeight: '700',
+  headerTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.text || '#111827',
+    textAlign: 'center',
+  },
+  placeholder: {
+    width: 40,
   },
   section: {
-    marginBottom: SPACING.md,
+    paddingHorizontal: SPACING?.md || 16,
+    paddingVertical: SPACING?.md || 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border || '#E5E7EB',
+    backgroundColor: COLORS.surface || '#FFFFFF',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.text || '#111827',
+    marginBottom: SPACING?.md || 16,
   },
   label: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: COLORS.textMuted,
-    marginBottom: 6,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    fontSize: 13,
+    fontWeight: '500',
+    color: COLORS.text || '#111827',
+    marginBottom: SPACING?.xs || 8,
+  },
+  required: {
+    color: COLORS.danger || '#EF4444',
   },
   input: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.md,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: 14,
-    color: COLORS.text,
+    borderColor: COLORS.border || '#E5E7EB',
+    borderRadius: RADIUS?.md || 8,
+    paddingHorizontal: SPACING?.sm || 12,
+    paddingVertical: SPACING?.sm || 12,
     fontSize: 15,
+    color: COLORS.text || '#111827',
+    marginBottom: SPACING?.md || 16,
+    backgroundColor: COLORS.background || '#FFFFFF',
   },
   textArea: {
-    height: 100,
-    paddingTop: 14,
+    minHeight: 80,
+    textAlignVertical: 'top',
   },
-  platformRow: {
+  row: {
     flexDirection: 'row',
-    gap: 8,
+    gap: SPACING?.sm || 12,
+    marginBottom: SPACING?.md || 16,
   },
-  platformBtn: {
+  rowItem: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: RADIUS.md,
-    borderWidth: 2,
-    borderColor: COLORS.border,
+  },
+  platformContainer: {
+    flexDirection: 'row',
+    gap: SPACING?.sm || 12,
+    marginBottom: SPACING?.md || 16,
+  },
+  platformOption: {
+    flex: 1,
     alignItems: 'center',
-    backgroundColor: COLORS.surface,
+    paddingVertical: SPACING?.sm || 12,
+    borderRadius: RADIUS?.md || 8,
+    borderWidth: 1,
+    borderColor: COLORS.border || '#E5E7EB',
+    backgroundColor: COLORS.background || '#FFFFFF',
+  },
+  platformOptionActive: {
+    borderColor: COLORS.primary || '#6366F1',
+    backgroundColor: COLORS.primaryDim || '#EEF2FF',
+  },
+  platformIcon: {
+    fontSize: 20,
+    marginBottom: SPACING?.xs || 4,
   },
   platformLabel: {
-    fontSize: 13,
+    fontSize: 12,
+    fontWeight: '500',
+    color: COLORS.textMuted || '#6B7280',
+  },
+  platformLabelActive: {
+    color: COLORS.primary || '#6366F1',
+  },
+  currencyContainer: {
+    flexDirection: 'row',
+    gap: SPACING?.xs || 8,
+  },
+  currencyOption: {
+    flex: 1,
+    paddingVertical: SPACING?.sm || 12,
+    alignItems: 'center',
+    borderRadius: RADIUS?.md || 8,
+    borderWidth: 1,
+    borderColor: COLORS.border || '#E5E7EB',
+    backgroundColor: COLORS.background || '#FFFFFF',
+  },
+  currencyOptionActive: {
+    borderColor: COLORS.primary || '#6366F1',
+    backgroundColor: COLORS.primaryDim || '#EEF2FF',
+  },
+  currencyText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.textMuted || '#6B7280',
+  },
+  currencyTextActive: {
+    color: COLORS.primary || '#6366F1',
+  },
+  hint: {
+    fontSize: 11,
+    color: COLORS.textMuted || '#6B7280',
+    marginTop: -SPACING?.sm || -12,
+    marginBottom: SPACING?.md || 16,
+  },
+  submitButton: {
+    margin: SPACING?.md || 16,
+    paddingVertical: SPACING?.md || 16,
+    backgroundColor: COLORS.primary || '#6366F1',
+    borderRadius: RADIUS?.lg || 12,
+    alignItems: 'center',
+  },
+  submitButtonDisabled: {
+    opacity: 0.6,
+  },
+  submitButtonText: {
+    fontSize: 16,
     fontWeight: '700',
-    color: COLORS.textMuted,
+    color: '#FFFFFF',
+  },
+  bottomSpacer: {
+    height: 40,
   },
 });
