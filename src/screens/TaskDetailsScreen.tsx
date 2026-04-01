@@ -60,6 +60,11 @@ type VaultFile = {
   folder_name: string;
 };
 
+type Props = {
+  route: any;
+  navigation: any;
+};
+
 export const TaskDetailsScreen = ({ route, navigation }: Props) => {
   const { taskId } = route.params;
   const [task, setTask] = useState<Task | null>(null);
@@ -249,7 +254,7 @@ export const TaskDetailsScreen = ({ route, navigation }: Props) => {
       );
       Alert.alert(
         'Task Completed!',
-        `"${task.project_title}" has been moved to archive.`,
+        `"${task.project_title}" has been moved to archive. You can view and reactivate it in the Vault.`,
         [{ text: 'OK', onPress: () => { setShowCompletionSheet(false); navigation.goBack(); } }]
       );
     } catch (error) {
@@ -350,23 +355,25 @@ export const TaskDetailsScreen = ({ route, navigation }: Props) => {
     <TouchableOpacity style={styles.referenceItem} onPress={() => openFile(item)} onLongPress={() => deleteReference(item.id)} activeOpacity={0.7}>
       <View style={styles.referenceThumbnail}>
         {item.file_type === 'image' ? (
-          item.thumbnail_path ? <Image source={{ uri: item.thumbnail_path }} style={styles.referenceImage} /> : <Text style={styles.referenceIcon}>🖼️</Text>
-        ) : <Text style={styles.referenceIcon}>📄</Text>}
+          <Text style={styles.referenceIcon}>🖼️</Text>
+        ) : (
+          <Text style={styles.referenceIcon}>📄</Text>
+        )}
       </View>
       <View style={styles.referenceInfo}>
         <Text style={styles.referenceName} numberOfLines={1}>{item.name}</Text>
         <Text style={styles.referenceType}>{item.file_type.toUpperCase()} • {formatFileSize(item.file_size_bytes)}</Text>
       </View>
       <TouchableOpacity onPress={() => deleteReference(item.id)} style={styles.referenceDelete}>
-        <Ionicons name="trash-outline" size={20} color={COLORS.danger || '#EF4444'} />
+        <Ionicons name="trash-outline" size={20} color="#EF4444" />
       </TouchableOpacity>
     </TouchableOpacity>
   );
 
   const renderVaultFileItem = ({ item }: { item: VaultFile }) => (
-    <TouchableOpacity style={[styles.vaultFileItem, selectedFiles.has(item.id) && styles.vaultFileItemSelected]} onPress={() => toggleFileSelection(item.id)}>
+    <TouchableOpacity style={[styles.vaultFileItem, selectedFiles.has(item.id) && styles.vaultFileItemSelected]} onPress={() => toggleFileSelection(item.id)} activeOpacity={0.7}>
       <View style={styles.vaultFileCheckbox}>
-        {selectedFiles.has(item.id) ? <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} /> : <View style={styles.vaultFileCheckboxEmpty} />}
+        {selectedFiles.has(item.id) ? <Ionicons name="checkmark-circle" size={24} color="#6366F1" /> : <View style={styles.vaultFileCheckboxEmpty} />}
       </View>
       <View style={styles.vaultFileThumbnail}>
         <Text style={styles.vaultFileIcon}>{item.file_type === 'image' ? '🖼️' : '📄'}</Text>
@@ -381,7 +388,7 @@ export const TaskDetailsScreen = ({ route, navigation }: Props) => {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color={COLORS.primary || '#6366F1'} />
+        <ActivityIndicator size="large" color="#6366F1" />
         <Text style={{ marginTop: 12, color: '#6B7280' }}>Loading task...</Text>
       </View>
     );
@@ -489,8 +496,8 @@ export const TaskDetailsScreen = ({ route, navigation }: Props) => {
       <TaskCompletionSheet visible={showCompletionSheet} onClose={() => setShowCompletionSheet(false)} onComplete={handleCompleteTask} taskTitle={task.project_title} />
 
       <Modal visible={imageModalVisible} transparent animationType="fade" onRequestClose={() => setImageModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity style={styles.modalCloseButton} onPress={() => setImageModalVisible(false)}><Text style={styles.modalCloseText}>✕</Text></TouchableOpacity>
+        <View style={styles.imageModalOverlay}>
+          <TouchableOpacity style={styles.imageModalCloseButton} onPress={() => setImageModalVisible(false)}><Text style={styles.imageModalCloseText}>✕</Text></TouchableOpacity>
           {selectedImage && <Image source={{ uri: selectedImage }} style={styles.fullscreenImage} resizeMode="contain" />}
         </View>
       </Modal>
@@ -504,7 +511,7 @@ export const TaskDetailsScreen = ({ route, navigation }: Props) => {
           </View>
           <Text style={styles.modalSubtitle}>Select files to import (copy, not move)</Text>
           {loadingVault ? (
-            <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
+            <ActivityIndicator size="large" color="#6366F1" style={{ marginTop: 40 }} />
           ) : vaultFiles.length === 0 ? (
             <View style={styles.emptyVaultState}>
               <Text style={styles.emptyVaultIcon}>📂</Text>
@@ -524,78 +531,398 @@ export const TaskDetailsScreen = ({ route, navigation }: Props) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 60, paddingBottom: 16, paddingHorizontal: 16, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-  backButton: { width: 40, height: 40, justifyContent: 'center' },
-  backButtonText: { fontSize: 28, color: '#6366F1' },
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: '600', color: '#111827', textAlign: 'center' },
-  placeholder: { width: 40 },
-  tabBar: { flexDirection: 'row', backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-  tab: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  activeTab: { borderBottomWidth: 2, borderBottomColor: '#6366F1' },
-  tabText: { fontSize: 14, fontWeight: '600', color: '#6B7280' },
-  activeTabText: { color: '#6366F1' },
-  content: { flex: 1, padding: 16 },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#E5E7EB' },
-  sectionTitle: { fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 12 },
-  infoRow: { flexDirection: 'row', marginBottom: 8, alignItems: 'center' },
-  label: { width: 100, fontSize: 13, fontWeight: '500', color: '#6B7280' },
-  value: { flex: 1, fontSize: 14, color: '#111827' },
-  platformText: { fontWeight: '600', color: '#6366F1' },
-  budgetText: { fontWeight: '600', color: '#10B981' },
-  progressContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  progressBar: { flex: 1, height: 6, backgroundColor: '#F3F4F6', borderRadius: 3, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: '#6366F1', borderRadius: 3 },
-  progressText: { fontSize: 12, fontWeight: '600', color: '#6B7280', minWidth: 40 },
-  description: { fontSize: 14, color: '#111827', lineHeight: 20 },
-  referenceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  addReferenceButton: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#EEF2FF', borderRadius: 20 },
-  addReferenceText: { fontSize: 12, fontWeight: '600', color: '#6366F1' },
-  referenceItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', gap: 12 },
-  referenceThumbnail: { width: 48, height: 48, borderRadius: 8, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  referenceIcon: { fontSize: 24 },
-  referenceImage: { width: 48, height: 48, resizeMode: 'cover' },
-  referenceInfo: { flex: 1 },
-  referenceName: { fontSize: 14, fontWeight: '500', color: '#111827' },
-  referenceType: { fontSize: 11, color: '#6B7280', marginTop: 2 },
-  referenceDelete: { padding: 8 },
-  emptyReferenceState: { alignItems: 'center', paddingVertical: 40, gap: 8 },
-  emptyReferenceIcon: { fontSize: 48 },
-  emptyReferenceTitle: { fontSize: 16, fontWeight: '600', color: '#111827' },
-  emptyReferenceDesc: { fontSize: 14, color: '#6B7280', textAlign: 'center', paddingHorizontal: 32 },
-  emptyReferenceButton: { marginTop: 16, backgroundColor: '#6366F1', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 20 },
-  emptyReferenceButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  actionBar: { flexDirection: 'row', padding: 16, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E5E7EB', gap: 8 },
-  actionButton: { flex: 1, backgroundColor: '#6366F1', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
-  completeButton: { backgroundColor: '#10B981' },
-  invoiceButton: { backgroundColor: '#F59E0B' },
-  actionButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
-  modalCloseButton: { position: 'absolute', top: 60, right: 20, zIndex: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
-  modalCloseText: { fontSize: 20, color: '#FFFFFF', fontWeight: '600' },
-  fullscreenImage: { width: '100%', height: '100%' },
-  modalContainer: { flex: 1, backgroundColor: '#F9FAFB' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 60, paddingHorizontal: 16, paddingBottom: 16, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-  modalCancelText: { fontSize: 16, color: '#6B7280' },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#111827' },
-  modalDoneText: { fontSize: 16, fontWeight: '600', color: '#6366F1' },
-  modalDoneDisabled: { opacity: 0.5 },
-  modalSubtitle: { fontSize: 14, color: '#6B7280', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#F3F4F6' },
-  vaultFileList: { padding: 16, gap: 8 },
-  vaultFileItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#E5E7EB' },
-  vaultFileItemSelected: { borderColor: '#6366F1', backgroundColor: '#EEF2FF' },
-  vaultFileCheckbox: { width: 32, alignItems: 'center' },
-  vaultFileCheckboxEmpty: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#D1D5DB' },
-  vaultFileThumbnail: { width: 48, height: 48, borderRadius: 8, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  vaultFileIcon: { fontSize: 24 },
-  vaultFileInfo: { flex: 1 },
-  vaultFileName: { fontSize: 14, fontWeight: '500', color: '#111827' },
-  vaultFileMeta: { fontSize: 11, color: '#6B7280', marginTop: 2 },
-  emptyVaultState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  emptyVaultIcon: { fontSize: 64, marginBottom: 16 },
-  emptyVaultTitle: { fontSize: 18, fontWeight: '600', color: '#111827', marginBottom: 8 },
-  emptyVaultDesc: { fontSize: 14, color: '#6B7280', textAlign: 'center', marginBottom: 24 },
-  emptyVaultButton: { backgroundColor: '#6366F1', borderRadius: 8, paddingVertical: 12, paddingHorizontal: 24 },
-  emptyVaultButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 60,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+  },
+  backButtonText: {
+    fontSize: 28,
+    color: '#6366F1',
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  placeholder: {
+    width: 40,
+  },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#6366F1',
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  activeTabText: {
+    color: '#6366F1',
+  },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  label: {
+    width: 100,
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#6B7280',
+  },
+  value: {
+    flex: 1,
+    fontSize: 14,
+    color: '#111827',
+  },
+  platformText: {
+    fontWeight: '600',
+    color: '#6366F1',
+  },
+  budgetText: {
+    fontWeight: '600',
+    color: '#10B981',
+  },
+  progressContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  progressBar: {
+    flex: 1,
+    height: 6,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#6366F1',
+    borderRadius: 3,
+  },
+  progressText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+    minWidth: 40,
+  },
+  description: {
+    fontSize: 14,
+    color: '#111827',
+    lineHeight: 20,
+  },
+  referenceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  addReferenceButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 20,
+  },
+  addReferenceText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6366F1',
+  },
+  referenceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    gap: 12,
+  },
+  referenceThumbnail: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  referenceIcon: {
+    fontSize: 24,
+  },
+  referenceInfo: {
+    flex: 1,
+  },
+  referenceName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#111827',
+  },
+  referenceType: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  referenceDelete: {
+    padding: 8,
+  },
+  emptyReferenceState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    gap: 8,
+  },
+  emptyReferenceIcon: {
+    fontSize: 48,
+  },
+  emptyReferenceTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  emptyReferenceDesc: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
+  emptyReferenceButton: {
+    marginTop: 16,
+    backgroundColor: '#6366F1',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  emptyReferenceButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  actionBar: {
+    flexDirection: 'row',
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    gap: 8,
+  },
+  actionButton: {
+    flex: 1,
+    backgroundColor: '#6366F1',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  completeButton: {
+    backgroundColor: '#10B981',
+  },
+  invoiceButton: {
+    backgroundColor: '#F59E0B',
+  },
+  actionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  imageModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalCloseButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageModalCloseText: {
+    fontSize: 20,
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  fullscreenImage: {
+    width: '100%',
+    height: '100%',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 60,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  modalCancelText: {
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  modalDoneText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6366F1',
+  },
+  modalDoneDisabled: {
+    opacity: 0.5,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#F3F4F6',
+  },
+  vaultFileList: {
+    padding: 16,
+    gap: 8,
+  },
+  vaultFileItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  vaultFileItemSelected: {
+    borderColor: '#6366F1',
+    backgroundColor: '#EEF2FF',
+  },
+  vaultFileCheckbox: {
+    width: 32,
+    alignItems: 'center',
+  },
+  vaultFileCheckboxEmpty: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+  },
+  vaultFileThumbnail: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  vaultFileIcon: {
+    fontSize: 24,
+  },
+  vaultFileInfo: {
+    flex: 1,
+  },
+  vaultFileName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#111827',
+  },
+  vaultFileMeta: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  emptyVaultState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  emptyVaultIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  emptyVaultTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  emptyVaultDesc: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  emptyVaultButton: {
+    backgroundColor: '#6366F1',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  emptyVaultButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });

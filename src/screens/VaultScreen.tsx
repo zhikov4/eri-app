@@ -10,6 +10,7 @@ import {
   Modal,
   TextInput,
   Image,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -33,6 +34,7 @@ type Task = {
   id: string;
   project_title: string;
   client_name: string;
+  platform: string;
   status: string;
   completed_at: number | null;
   created_at: number;
@@ -40,7 +42,7 @@ type Task = {
 
 const DEFAULT_PERSONAL_FOLDER_NAME = 'Personal';
 
-export const VaultScreen = () => {
+export const VaultScreen = ({ navigation }: any) => {
   const user = useERIStore((state) => state.user);
   const [folders, setFolders] = useState<VaultFolder[]>([]);
   const [selectedFolder, setSelectedFolder] = useState<VaultFolder | null>(null);
@@ -81,7 +83,7 @@ export const VaultScreen = () => {
     try {
       const db = await getDatabase();
       const result = await db.getAllAsync<Task>(
-        `SELECT id, project_title, client_name, status, completed_at, created_at
+        `SELECT id, project_title, client_name, platform, status, completed_at, created_at
          FROM tasks WHERE user_id = ? AND pool = 'archived'
          ORDER BY completed_at DESC`,
         [user.id]
@@ -126,28 +128,23 @@ export const VaultScreen = () => {
     if (usageAfter > storageLimit) {
       Alert.alert(
         'Storage Limit Reached',
-        `You have reached your ${Math.floor(storageLimit / 1024 / 1024)}MB storage limit. Please delete some files or upgrade to Pro for unlimited storage.`
+        `You have reached your ${Math.floor(storageLimit / 1024 / 1024)}MB storage limit.`
       );
       return false;
     }
     if (usagePercent >= 95) {
-      Alert.alert(
-        'Storage Almost Full',
-        `You're at ${Math.floor(usagePercent)}% of your storage. Please delete some files to continue uploading.`
-      );
+      Alert.alert('Storage Almost Full', `You're at ${Math.floor(usagePercent)}% of your storage.`);
       return false;
     }
     if (usagePercent >= 80) {
-      Alert.alert(
-        'Storage Warning',
-        `You're at ${Math.floor(usagePercent)}% of your storage. Consider deleting unused files.`
-      );
+      Alert.alert('Storage Warning', `You're at ${Math.floor(usagePercent)}% of your storage.`);
     }
     return true;
   };
 
   const pickAndUploadFile = async () => {
     if (!user?.id) return;
+    
     let targetFolderId: string;
     if (selectedFolder) {
       targetFolderId = selectedFolder.id;
@@ -166,6 +163,7 @@ export const VaultScreen = () => {
       allowsEditing: false,
       quality: 0.8,
     });
+    
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
       let fileSize = 0;
@@ -214,7 +212,7 @@ export const VaultScreen = () => {
   const handleDeleteFile = async (file: VaultFile) => {
     Alert.alert(
       'Delete File',
-      `Are you sure you want to delete "${file.name}"?`,
+      `Delete "${file.name}"?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -225,9 +223,7 @@ export const VaultScreen = () => {
             if (file.local_path) {
               try {
                 const fileToDelete = new File(file.local_path);
-                if (fileToDelete.exists) {
-                  await fileToDelete.delete();
-                }
+                if (fileToDelete.exists) await fileToDelete.delete();
               } catch (e) {
                 console.warn('Could not delete physical file:', e);
               }
@@ -258,36 +254,9 @@ export const VaultScreen = () => {
     await loadData();
   };
 
-  const reactivateTask = async (taskId: string) => {
-    Alert.alert(
-      'Reactivate Task',
-      'This task will be moved back to your working list. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reactivate',
-          onPress: async () => {
-            try {
-              const db = await getDatabase();
-              await db.runAsync(
-                `UPDATE tasks SET status = 'active', pool = 'active', completed_at = NULL WHERE id = ?`,
-                [taskId]
-              );
-              // Also move vault folder back to task_active
-              await db.runAsync(
-                `UPDATE vault_folders SET type = 'task_active', archived_at = NULL WHERE task_id = ? AND type = 'task_archived'`,
-                [taskId]
-              );
-              await loadData();
-              Alert.alert('Success', 'Task reactivated and moved to Working List');
-            } catch (error) {
-              console.error('Error reactivating task:', error);
-              Alert.alert('Error', 'Failed to reactivate task');
-            }
-          },
-        },
-      ]
-    );
+  const openArchivedTask = (taskId: string) => {
+    // Navigate to TaskDetails in read-only mode
+    navigation.navigate('TaskDetails', { taskId, readOnly: true });
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -301,6 +270,7 @@ export const VaultScreen = () => {
     <TouchableOpacity
       style={[styles.folderCard, selectedFolder?.id === item.id && styles.folderCardSelected]}
       onPress={() => setSelectedFolder(item)}
+      activeOpacity={0.7}
     >
       <Text style={styles.folderIcon}>
         {item.type === 'personal' ? '📁' : item.type === 'task_active' ? '🎨' : '📦'}
@@ -326,7 +296,6 @@ export const VaultScreen = () => {
               Alert.alert('File Not Found', 'The file no longer exists on device.');
             }
           } catch (error) {
-            console.error('Error opening image:', error);
             Alert.alert('Error', 'Could not open file');
           }
         } else {
@@ -334,24 +303,29 @@ export const VaultScreen = () => {
         }
       }}
       onLongPress={() => handleDeleteFile(item)}
+      activeOpacity={0.7}
     >
-      <Text style={styles.fileIcon}>
-        {item.file_type === 'image' ? '🖼️' : item.file_type === 'video' ? '🎬' : '📄'}
-      </Text>
+      <View style={styles.fileIconContainer}>
+        <Text style={styles.fileIcon}>
+          {item.file_type === 'image' ? '🖼️' : item.file_type === 'video' ? '🎬' : '📄'}
+        </Text>
+      </View>
       <View style={styles.fileInfo}>
         <Text style={styles.fileName} numberOfLines={1}>{item.name}</Text>
         <Text style={styles.fileSize}>{formatFileSize(item.file_size_bytes || 0)}</Text>
       </View>
       <TouchableOpacity onPress={() => handleDeleteFile(item)} style={styles.deleteButton}>
-        <Ionicons name="trash-outline" size={20} color={COLORS.danger || '#EF4444'} />
+        <Ionicons name="trash-outline" size={20} color="#EF4444" />
       </TouchableOpacity>
     </TouchableOpacity>
   );
 
   const renderArchivedTask = ({ item }: { item: Task }) => (
-    <TouchableOpacity style={styles.archivedTaskCard} onPress={() => reactivateTask(item.id)}>
+    <TouchableOpacity style={styles.archivedTaskCard} onPress={() => openArchivedTask(item.id)} activeOpacity={0.7}>
       <View style={styles.archivedTaskIcon}>
-        <Text style={styles.archivedTaskIconText}>📄</Text>
+        <Text style={styles.archivedTaskIconText}>
+          {item.platform === 'fiverr' ? '🎯' : item.platform === 'vgen' ? '🎨' : '✍️'}
+        </Text>
       </View>
       <View style={styles.archivedTaskInfo}>
         <Text style={styles.archivedTaskTitle} numberOfLines={1}>{item.project_title}</Text>
@@ -360,7 +334,7 @@ export const VaultScreen = () => {
           Completed: {new Date((item.completed_at || item.created_at) * 1000).toLocaleDateString()}
         </Text>
       </View>
-      <Ionicons name="refresh-outline" size={20} color={COLORS.primary} />
+      <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
     </TouchableOpacity>
   );
 
@@ -368,97 +342,111 @@ export const VaultScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Global Vault</Text>
-      </View>
-
-      {/* Storage Indicator */}
-      <View style={styles.storageCard}>
-        <View style={styles.storageHeader}>
-          <Text style={styles.storageTitle}>Storage Used</Text>
-          <Text style={styles.storageText}>
-            {formatFileSize(storageUsed)} / {formatFileSize(storageLimit)}
-          </Text>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.title}>Global Vault</Text>
         </View>
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${Math.min(storagePercent, 100)}%` }]} />
-        </View>
-        {storagePercent >= 80 && (
-          <Text style={styles.storageWarning}>
-            ⚠️ {storagePercent >= 95 ? 'Storage almost full!' : 'Storage running low'}
-          </Text>
-        )}
-      </View>
 
-      {/* Upload button */}
-      <TouchableOpacity style={styles.uploadButton} onPress={pickAndUploadFile}>
-        <Ionicons name="cloud-upload-outline" size={20} color="#FFFFFF" />
-        <Text style={styles.uploadButtonText}>Upload to {selectedFolder ? selectedFolder.name : 'Personal'}</Text>
-      </TouchableOpacity>
-
-      {/* Personal Folders Section */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Personal Folders</Text>
-        <TouchableOpacity onPress={() => setShowNewFolderModal(true)}>
-          <Text style={styles.addButton}>+ New Folder</Text>
-        </TouchableOpacity>
-      </View>
-
-      <FlatList
-        data={folders.filter(f => f.type === 'personal')}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        renderItem={renderFolder}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.folderList}
-        ListEmptyComponent={<Text style={styles.emptyText}>No personal folders. Create one!</Text>}
-      />
-
-      {/* Task Folders Section */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Task Folders</Text>
-      </View>
-
-      <FlatList
-        data={folders.filter(f => f.type === 'task_active')}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        renderItem={renderFolder}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.folderList}
-        ListEmptyComponent={<Text style={styles.emptyText}>No active task folders</Text>}
-      />
-
-      {/* Files in selected folder */}
-      {selectedFolder && (
-        <>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{selectedFolder.name}</Text>
+        {/* Storage Card */}
+        <View style={styles.storageCard}>
+          <View style={styles.storageHeader}>
+            <Text style={styles.storageTitle}>Storage Used</Text>
+            <Text style={styles.storageText}>
+              {formatFileSize(storageUsed)} / {formatFileSize(storageLimit)}
+            </Text>
           </View>
-          <FlatList
-            data={files}
-            renderItem={renderFile}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.fileList}
-            ListEmptyComponent={<Text style={styles.emptyText}>No files in this folder</Text>}
-          />
-        </>
-      )}
+          <View style={styles.progressBar}>
+            <View style={[styles.progressFill, { width: `${Math.min(storagePercent, 100)}%` }]} />
+          </View>
+          {storagePercent >= 80 && (
+            <Text style={styles.storageWarning}>
+              ⚠️ {storagePercent >= 95 ? 'Storage almost full!' : 'Storage running low'}
+            </Text>
+          )}
+        </View>
 
-      {/* Archived Tasks Section */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Archived Tasks</Text>
-        <Text style={styles.sectionSubtitle}>Tap to reactivate</Text>
-      </View>
+        {/* Upload Button */}
+        <TouchableOpacity style={styles.uploadButton} onPress={pickAndUploadFile}>
+          <Ionicons name="cloud-upload-outline" size={20} color="#FFFFFF" />
+          <Text style={styles.uploadButtonText}>Upload to {selectedFolder ? selectedFolder.name : 'Personal'}</Text>
+        </TouchableOpacity>
 
-      <FlatList
-        data={archivedTasks}
-        renderItem={renderArchivedTask}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.archivedList}
-        ListEmptyComponent={<Text style={styles.emptyText}>No archived tasks</Text>}
-      />
+        {/* Personal Folders Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Personal Folders</Text>
+          <TouchableOpacity onPress={() => setShowNewFolderModal(true)}>
+            <Text style={styles.addButton}>+ New Folder</Text>
+          </TouchableOpacity>
+        </View>
+
+        <FlatList
+          data={folders.filter(f => f.type === 'personal')}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          renderItem={renderFolder}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.folderList}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>No personal folders. Create one!</Text>
+          }
+        />
+
+        {/* Task Folders Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Task Folders</Text>
+        </View>
+
+        <FlatList
+          data={folders.filter(f => f.type === 'task_active')}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          renderItem={renderFolder}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.folderList}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>No active task folders</Text>
+          }
+        />
+
+        {/* Files in selected folder */}
+        {selectedFolder && (
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>{selectedFolder.name}</Text>
+            </View>
+            <FlatList
+              data={files}
+              renderItem={renderFile}
+              keyExtractor={(item) => item.id}
+              scrollEnabled={false}
+              contentContainerStyle={styles.fileList}
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>No files in this folder</Text>
+              }
+            />
+          </>
+        )}
+
+        {/* Archived Tasks Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Archived Tasks</Text>
+          <Text style={styles.sectionSubtitle}>Tap to view details</Text>
+        </View>
+
+        <FlatList
+          data={archivedTasks}
+          renderItem={renderArchivedTask}
+          keyExtractor={(item) => item.id}
+          scrollEnabled={false}
+          contentContainerStyle={styles.archivedList}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>No archived tasks</Text>
+          }
+        />
+
+        <View style={styles.bottomSpacer} />
+      </ScrollView>
 
       {/* New Folder Modal */}
       <Modal visible={showNewFolderModal} transparent animationType="slide" onRequestClose={() => setShowNewFolderModal(false)}>
@@ -468,7 +456,7 @@ export const VaultScreen = () => {
             <TextInput
               style={styles.input}
               placeholder="Folder name"
-              placeholderTextColor={COLORS.textMuted}
+              placeholderTextColor="#6B7280"
               value={newFolderName}
               onChangeText={setNewFolderName}
               autoFocus
@@ -487,17 +475,19 @@ export const VaultScreen = () => {
 
       {/* Image Modal */}
       <Modal visible={imageModalVisible} transparent animationType="fade" onRequestClose={() => setImageModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity style={styles.modalCloseButton} onPress={() => setImageModalVisible(false)}>
-            <Text style={styles.modalCloseText}>✕</Text>
+        <View style={styles.imageModalOverlay}>
+          <TouchableOpacity style={styles.imageModalCloseButton} onPress={() => setImageModalVisible(false)}>
+            <Text style={styles.imageModalCloseText}>✕</Text>
           </TouchableOpacity>
-          {selectedImage && <Image source={{ uri: selectedImage }} style={styles.fullscreenImage} resizeMode="contain" />}
+          {selectedImage && (
+            <Image source={{ uri: selectedImage }} style={styles.fullscreenImage} resizeMode="contain" />
+          )}
         </View>
       </Modal>
 
       {loading && (
         <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
+          <ActivityIndicator size="large" color="#6366F1" />
         </View>
       )}
     </View>
@@ -505,7 +495,13 @@ export const VaultScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  scrollContent: {
+    paddingBottom: 40,
+  },
   header: {
     paddingTop: 60,
     paddingHorizontal: 16,
@@ -514,7 +510,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
   },
-  title: { fontSize: 28, fontWeight: '700', color: '#111827' },
+  title: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#111827',
+  },
   storageCard: {
     margin: 16,
     padding: 16,
@@ -523,12 +523,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
-  storageHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  storageTitle: { fontSize: 14, fontWeight: '600', color: '#111827' },
-  storageText: { fontSize: 12, color: '#6B7280' },
-  progressBar: { height: 6, backgroundColor: '#F3F4F6', borderRadius: 3, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: '#6366F1', borderRadius: 3 },
-  storageWarning: { marginTop: 8, fontSize: 12, color: '#F59E0B' },
+  storageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  storageTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  storageText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#6366F1',
+    borderRadius: 3,
+  },
+  storageWarning: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#F59E0B',
+  },
   uploadButton: {
     flexDirection: 'row',
     backgroundColor: '#6366F1',
@@ -540,19 +564,38 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  uploadButtonText: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
+  uploadButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     marginTop: 16,
-    marginBottom: 8,
+    marginBottom: 12,
   },
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#111827' },
-  sectionSubtitle: { fontSize: 12, color: '#6B7280' },
-  addButton: { fontSize: 14, fontWeight: '600', color: '#6366F1' },
-  folderList: { paddingHorizontal: 16, gap: 12, paddingBottom: 8 },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  addButton: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6366F1',
+  },
+  folderList: {
+    paddingHorizontal: 16,
+    gap: 12,
+    paddingBottom: 8,
+  },
   folderCard: {
     width: 120,
     padding: 12,
@@ -563,11 +606,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
-  folderCardSelected: { borderColor: '#6366F1', backgroundColor: '#EEF2FF' },
-  folderIcon: { fontSize: 32, marginBottom: 8 },
-  folderName: { fontSize: 14, fontWeight: '600', color: '#111827', textAlign: 'center' },
-  folderType: { fontSize: 10, color: '#6B7280', marginTop: 4 },
-  fileList: { padding: 16, gap: 8 },
+  folderCardSelected: {
+    borderColor: '#6366F1',
+    backgroundColor: '#EEF2FF',
+  },
+  folderIcon: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  folderName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  folderType: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  fileList: {
+    padding: 16,
+    gap: 8,
+  },
   fileCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -577,12 +638,39 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
-  fileIcon: { fontSize: 28, marginRight: 12 },
-  fileInfo: { flex: 1 },
-  fileName: { fontSize: 14, fontWeight: '500', color: '#111827' },
-  fileSize: { fontSize: 11, color: '#6B7280', marginTop: 2 },
-  deleteButton: { padding: 8 },
-  archivedList: { padding: 16, gap: 12, paddingBottom: 40 },
+  fileIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  fileIcon: {
+    fontSize: 24,
+  },
+  fileInfo: {
+    flex: 1,
+  },
+  fileName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#111827',
+  },
+  fileSize: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  deleteButton: {
+    padding: 8,
+  },
+  archivedList: {
+    paddingHorizontal: 16,
+    gap: 12,
+    paddingBottom: 16,
+  },
   archivedTaskCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -592,16 +680,62 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
-  archivedTaskIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  archivedTaskIconText: { fontSize: 24 },
-  archivedTaskInfo: { flex: 1 },
-  archivedTaskTitle: { fontSize: 16, fontWeight: '600', color: '#111827' },
-  archivedTaskClient: { fontSize: 13, color: '#6B7280', marginTop: 2 },
-  archivedTaskDate: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
-  emptyText: { textAlign: 'center', color: '#6B7280', paddingVertical: 40 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '80%', backgroundColor: '#FFFFFF', borderRadius: 12, padding: 24 },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#111827', marginBottom: 16 },
+  archivedTaskIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  archivedTaskIconText: {
+    fontSize: 24,
+  },
+  archivedTaskInfo: {
+    flex: 1,
+  },
+  archivedTaskTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  archivedTaskClient: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  archivedTaskDate: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#6B7280',
+    paddingVertical: 40,
+  },
+  bottomSpacer: {
+    height: 40,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '80%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 16,
+  },
   input: {
     borderWidth: 1,
     borderColor: '#E5E7EB',
@@ -612,13 +746,37 @@ const styles = StyleSheet.create({
     color: '#111827',
     marginBottom: 16,
   },
-  modalButtons: { flexDirection: 'row', gap: 12 },
-  modalButton: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
-  cancelButton: { backgroundColor: '#F3F4F6' },
-  cancelButtonText: { color: '#6B7280', fontWeight: '600' },
-  createButton: { backgroundColor: '#6366F1' },
-  createButtonText: { color: '#FFFFFF', fontWeight: '600' },
-  modalCloseButton: {
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#F3F4F6',
+  },
+  cancelButtonText: {
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  createButton: {
+    backgroundColor: '#6366F1',
+  },
+  createButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  imageModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalCloseButton: {
     position: 'absolute',
     top: 60,
     right: 20,
@@ -630,7 +788,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modalCloseText: { fontSize: 20, color: '#FFFFFF', fontWeight: '600' },
-  fullscreenImage: { width: '100%', height: '100%' },
-  loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
+  imageModalCloseText: {
+    fontSize: 20,
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  fullscreenImage: {
+    width: '100%',
+    height: '100%',
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });
