@@ -353,8 +353,396 @@ export const InvoiceBuilderScreen = ({ route, navigation }: Props) => {
 
   const dismissKeyboard = () => Keyboard.dismiss();
 
-  // Rest of the render functions remain the same (renderStep1, renderStep2, etc.)
-  // ... (keep the existing renderStep1, renderStep2, renderStep3, renderStep4 functions from your current file)
+  const renderStep1 = () => (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.keyboardView}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+    >
+      <TouchableWithoutFeedback onPress={dismissKeyboard}>
+        <ScrollView
+          style={styles.stepContent}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.sectionTitle}>Client Information</Text>
+          
+          <Text style={styles.label}>Client Name *</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Full name"
+            value={clientName}
+            onChangeText={setClientName}
+          />
+          
+          <Text style={styles.label}>Client Email</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="email@example.com"
+            keyboardType="email-address"
+            value={clientEmail}
+            onChangeText={setClientEmail}
+          />
+          
+          <Text style={styles.label}>Client Phone (WhatsApp)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="+62 812 3456 7890"
+            keyboardType="phone-pad"
+            value={clientPhone}
+            onChangeText={setClientPhone}
+          />
+          
+          <Text style={styles.label}>Client Address</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            placeholder="Full address"
+            multiline
+            numberOfLines={2}
+            value={clientAddress}
+            onChangeText={setClientAddress}
+          />
+          
+          <Text style={styles.label}>Country</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Indonesia / USA / etc"
+            value={clientCountry}
+            onChangeText={setClientCountry}
+          />
+          
+          <Text style={styles.sectionTitle}>Invoice Items</Text>
+          
+          {items.map((item, index) => (
+            <View key={item.id} style={styles.itemCard}>
+              <View style={styles.itemHeader}>
+                <Text style={styles.itemTitle}>Item {index + 1}</Text>
+                {items.length > 1 && (
+                  <TouchableOpacity onPress={() => removeItem(item.id)}>
+                    <Text style={styles.removeItemText}>Remove</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              
+              <Text style={styles.label}>Description</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Service description"
+                value={item.description}
+                onChangeText={(text) => updateItem(item.id, 'description', text)}
+              />
+              
+              <View style={styles.row}>
+                <View style={[styles.rowItem, { flex: 1 }]}>
+                  <Text style={styles.label}>Quantity</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="1"
+                    keyboardType="numeric"
+                    value={item.quantity.toString()}
+                    onChangeText={(text) => updateItem(item.id, 'quantity', parseFloat(text) || 0)}
+                  />
+                </View>
+                <View style={[styles.rowItem, { flex: 2 }]}>
+                  <Text style={styles.label}>Price ({currency})</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="0"
+                    keyboardType="numeric"
+                    value={item.price.toString()}
+                    onChangeText={(text) => updateItem(item.id, 'price', parseFloat(text) || 0)}
+                  />
+                </View>
+              </View>
+              
+              <Text style={styles.itemSubtotal}>
+                Subtotal: {currency === 'IDR' ? 'Rp ' : '$'}{item.subtotal.toLocaleString()}
+              </Text>
+            </View>
+          ))}
+          
+          <TouchableOpacity style={styles.addItemButton} onPress={addItem}>
+            <Text style={styles.addItemButtonText}>+ Add Item</Text>
+          </TouchableOpacity>
+          
+          <View style={styles.totalsCard}>
+            <View style={styles.totalsRow}>
+              <Text style={styles.totalsLabel}>Subtotal</Text>
+              <Text style={styles.totalsValue}>{currency === 'IDR' ? 'Rp ' : '$'}{subtotal.toLocaleString()}</Text>
+            </View>
+            
+            <View style={styles.totalsRow}>
+              <Text style={styles.totalsLabel}>Tax (%)</Text>
+              <TextInput
+                style={styles.taxInput}
+                keyboardType="numeric"
+                value={taxPct.toString()}
+                onChangeText={(text) => setTaxPct(parseFloat(text) || 0)}
+              />
+            </View>
+            
+            <View style={styles.totalsRow}>
+              <Text style={styles.totalsLabel}>Tax Amount</Text>
+              <Text style={styles.totalsValue}>{currency === 'IDR' ? 'Rp ' : '$'}{taxAmount.toLocaleString()}</Text>
+            </View>
+            
+            <View style={[styles.totalsRow, styles.totalRow]}>
+              <Text style={styles.totalLabel}>Total</Text>
+              <Text style={styles.totalValue}>{currency === 'IDR' ? 'Rp ' : '$'}{total.toLocaleString()}</Text>
+            </View>
+          </View>
+          
+          <View style={styles.row}>
+            <View style={[styles.rowItem, { flex: 1 }]}>
+              <Text style={styles.label}>Currency</Text>
+              <View style={styles.currencyContainer}>
+                <TouchableOpacity
+                  style={[styles.currencyOption, currency === 'IDR' && styles.currencyOptionActive]}
+                  onPress={() => setCurrency('IDR')}
+                >
+                  <Text style={[styles.currencyText, currency === 'IDR' && styles.currencyTextActive]}>IDR</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.currencyOption, currency === 'USD' && styles.currencyOptionActive]}
+                  onPress={() => setCurrency('USD')}
+                >
+                  <Text style={[styles.currencyText, currency === 'USD' && styles.currencyTextActive]}>USD</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            
+            <View style={[styles.rowItem, { flex: 1 }]}>
+              <Text style={styles.label}>Due in (days)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="14"
+                keyboardType="numeric"
+                value={dueDays.toString()}
+                onChangeText={(text) => setDueDays(parseInt(text) || 0)}
+              />
+            </View>
+          </View>
+          
+          <Text style={styles.label}>Notes (optional)</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            placeholder="Payment instructions, thank you note, etc."
+            multiline
+            numberOfLines={3}
+            value={notes}
+            onChangeText={setNotes}
+          />
+          
+          <TouchableOpacity
+            style={styles.nextButton}
+            onPress={() => validateStep1() && setStep(2)}
+          >
+            <Text style={styles.nextButtonText}>Next: Payment & Delivery →</Text>
+          </TouchableOpacity>
+          
+          <View style={styles.bottomSpacer} />
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
+  );
+
+  const renderStep2 = () => (
+    <ScrollView
+      style={styles.stepContent}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.scrollContent}
+    >
+      <Text style={styles.sectionTitle}>Payment Methods</Text>
+      <Text style={styles.hint}>Select how you want to be paid</Text>
+      
+      {PAYMENT_METHODS.map(method => (
+        <TouchableOpacity
+          key={method.id}
+          style={[styles.optionCard, selectedPaymentMethods.includes(method.id) && styles.optionCardActive]}
+          onPress={() => togglePaymentMethod(method.id)}
+        >
+          <Text style={styles.optionIcon}>{method.icon}</Text>
+          <View style={styles.optionInfo}>
+            <Text style={styles.optionName}>{method.name}</Text>
+            <Text style={styles.optionDesc}>
+              {method.id === 'bank' && 'Transfer to bank account'}
+              {method.id === 'qris' && 'Scan QRIS code'}
+              {method.id === 'paypal' && 'Send PayPal invoice'}
+            </Text>
+          </View>
+          <View style={[styles.optionCheck, selectedPaymentMethods.includes(method.id) && styles.optionCheckActive]}>
+            {selectedPaymentMethods.includes(method.id) && <Text style={styles.checkMark}>✓</Text>}
+          </View>
+        </TouchableOpacity>
+      ))}
+      
+      <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Delivery Channels</Text>
+      <Text style={styles.hint}>How to send the invoice</Text>
+      
+      {DELIVERY_CHANNELS.map(channel => (
+        <TouchableOpacity
+          key={channel.id}
+          style={[styles.optionCard, selectedDeliveryChannels.includes(channel.id) && styles.optionCardActive]}
+          onPress={() => toggleDeliveryChannel(channel.id)}
+        >
+          <Text style={styles.optionIcon}>{channel.icon}</Text>
+          <View style={styles.optionInfo}>
+            <Text style={styles.optionName}>{channel.name}</Text>
+            <Text style={styles.optionDesc}>
+              {channel.id === 'email' && 'Send PDF to client email'}
+              {channel.id === 'wa' && 'Share via WhatsApp message'}
+              {channel.id === 'paypal' && 'Send via PayPal Invoicing API'}
+              {channel.id === 'link' && 'Generate shareable link'}
+            </Text>
+          </View>
+          <View style={[styles.optionCheck, selectedDeliveryChannels.includes(channel.id) && styles.optionCheckActive]}>
+            {selectedDeliveryChannels.includes(channel.id) && <Text style={styles.checkMark}>✓</Text>}
+          </View>
+        </TouchableOpacity>
+      ))}
+      
+      <View style={styles.buttonRow}>
+        <TouchableOpacity
+          style={[styles.navButton, styles.backButton]}
+          onPress={() => setStep(1)}
+        >
+          <Text style={styles.backButtonText}>← Back</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.navButton, styles.nextButton]}
+          onPress={() => validateStep2() && setStep(3)}
+        >
+          <Text style={styles.nextButtonText}>Preview Invoice →</Text>
+        </TouchableOpacity>
+      </View>
+      
+      <View style={styles.bottomSpacer} />
+    </ScrollView>
+  );
+
+  const renderStep3 = () => (
+    <ScrollView
+      style={styles.stepContent}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.scrollContent}
+    >
+      <View style={styles.previewHeader}>
+        <Text style={styles.previewTitle}>Invoice Preview</Text>
+        <Text style={styles.previewHint}>This is how your client will see it</Text>
+      </View>
+      
+      <View style={styles.previewCard}>
+        <Text style={styles.previewInvoiceNumber}>{invoiceNumber}</Text>
+        <View style={styles.previewDivider} />
+        
+        <View style={styles.previewRow}>
+          <Text style={styles.previewLabel}>Bill To:</Text>
+          <View style={styles.previewClientInfo}>
+            <Text style={styles.previewClientName}>{clientName}</Text>
+            {clientEmail && <Text style={styles.previewClientDetail}>{clientEmail}</Text>}
+            {clientPhone && <Text style={styles.previewClientDetail}>{clientPhone}</Text>}
+            {clientAddress && <Text style={styles.previewClientDetail}>{clientAddress}</Text>}
+          </View>
+        </View>
+        
+        <View style={styles.previewDivider} />
+        
+        {items.map((item) => (
+          <View key={item.id} style={styles.previewItem}>
+            <View style={styles.previewItemInfo}>
+              <Text style={styles.previewItemDesc}>{item.description}</Text>
+              <Text style={styles.previewItemQty}>{item.quantity} × {currency === 'IDR' ? 'Rp ' : '$'}{item.price.toLocaleString()}</Text>
+            </View>
+            <Text style={styles.previewItemPrice}>{currency === 'IDR' ? 'Rp ' : '$'}{item.subtotal.toLocaleString()}</Text>
+          </View>
+        ))}
+        
+        <View style={styles.previewDivider} />
+        
+        <View style={styles.previewTotals}>
+          <View style={styles.previewTotalRow}>
+            <Text>Subtotal</Text>
+            <Text>{currency === 'IDR' ? 'Rp ' : '$'}{subtotal.toLocaleString()}</Text>
+          </View>
+          {taxPct > 0 && (
+            <View style={styles.previewTotalRow}>
+              <Text>Tax ({taxPct}%)</Text>
+              <Text>{currency === 'IDR' ? 'Rp ' : '$'}{taxAmount.toLocaleString()}</Text>
+            </View>
+          )}
+          <View style={[styles.previewTotalRow, styles.previewGrandTotal]}>
+            <Text style={styles.previewGrandTotalText}>Total</Text>
+            <Text style={styles.previewGrandTotalValue}>{currency === 'IDR' ? 'Rp ' : '$'}{total.toLocaleString()}</Text>
+          </View>
+        </View>
+        
+        {notes && (
+          <>
+            <View style={styles.previewDivider} />
+            <Text style={styles.previewNotes}>{notes}</Text>
+          </>
+        )}
+        
+        {userTier === 'free' && (
+          <Text style={styles.watermark}>Dibuat dengan ERI - eri.app</Text>
+        )}
+      </View>
+      
+      <View style={styles.buttonRow}>
+        <TouchableOpacity
+          style={[styles.navButton, styles.backButton]}
+          onPress={() => setStep(2)}
+        >
+          <Text style={styles.backButtonText}>← Back</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.navButton, styles.sendButton]}
+          onPress={handleSendInvoice}
+          disabled={sending}
+        >
+          <Text style={styles.sendButtonText}>
+            {sending ? 'Sending...' : 'Send Invoice →'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      
+      <View style={styles.bottomSpacer} />
+    </ScrollView>
+  );
+
+  const renderStep4 = () => (
+    <ScrollView
+      style={styles.stepContent}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.scrollContent}
+    >
+      <View style={styles.resultCard}>
+        {sendResult?.success ? (
+          <>
+            <Text style={styles.resultIcon}>✅</Text>
+            <Text style={styles.resultTitle}>Invoice Sent!</Text>
+            <Text style={styles.resultMessage}>{sendResult.message}</Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.resultIcon}>❌</Text>
+            <Text style={styles.resultTitle}>Send Failed</Text>
+            <Text style={styles.resultMessage}>{sendResult?.message}</Text>
+          </>
+        )}
+      </View>
+      
+      <TouchableOpacity
+        style={[styles.navButton, styles.doneButton]}
+        onPress={() => navigation.goBack()}
+      >
+        <Text style={styles.doneButtonText}>Done</Text>
+      </TouchableOpacity>
+      
+      <View style={styles.bottomSpacer} />
+    </ScrollView>
+  );
 
   if (loading) {
     return (
@@ -668,8 +1056,8 @@ const styles = StyleSheet.create({
   navButton: { flex: 1, paddingVertical: SPACING?.md || 16, borderRadius: RADIUS?.md || 8, alignItems: 'center' },
   nextButton: { backgroundColor: COLORS.primary || '#6366F1' },
   nextButtonText: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
-  backButtonStyle: { backgroundColor: COLORS.surfaceHighlight || '#F3F4F6' },
-  backButtonTextStyle: { fontSize: 16, fontWeight: '600', color: COLORS.textMuted || '#6B7280' },
+  backButton: { backgroundColor: COLORS.surfaceHighlight || '#F3F4F6' },
+  backButtonText: { fontSize: 16, fontWeight: '600', color: COLORS.textMuted || '#6B7280' },
   sendButton: { backgroundColor: COLORS.success || '#10B981', flex: 1, paddingVertical: SPACING?.md || 16, borderRadius: RADIUS?.md || 8, alignItems: 'center' },
   sendButtonText: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
   doneButton: { backgroundColor: COLORS.primary || '#6366F1', marginHorizontal: SPACING?.md || 16, marginTop: SPACING?.lg || 24 },

@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   TextInput,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -28,18 +29,16 @@ import {
 import { COLORS, SPACING, RADIUS, TYPOGRAPHY } from '../constants/theme';
 
 type PoolType = 'personal' | 'task_active' | 'task_archived';
-
-const POOL_ICONS: Record<PoolType, string> = {
-  personal: '📁',
-  task_active: '🎨',
-  task_archived: '📦',
+type Task = {
+  id: string;
+  project_title: string;
+  client_name: string;
+  status: string;
+  completed_at: number | null;
+  created_at: number;
 };
 
-const POOL_TITLES: Record<PoolType, string> = {
-  personal: 'Personal Collection',
-  task_active: 'Active Tasks',
-  task_archived: 'Completed Archive',
-};
+const DEFAULT_PERSONAL_FOLDER_NAME = 'Personal';
 
 export const VaultScreen = () => {
   const user = useERIStore((state) => state.user);
@@ -48,24 +47,65 @@ export const VaultScreen = () => {
   const [files, setFiles] = useState<VaultFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [storageUsed, setStorageUsed] = useState(0);
-  const [storageLimit] = useState(500 * 1024 * 1024); // 500MB
+  const [storageLimit] = useState(500 * 1024 * 1024);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [archivedTasks, setArchivedTasks] = useState<Task[]>([]);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [imageModalVisible, setImageModalVisible] = useState(false);
+
+  const ensurePersonalFolder = async () => {
+    if (!user?.id) return null;
+    const db = await getDatabase();
+    const existing = await db.getFirstAsync<{ id: string }>(
+      `SELECT id FROM vault_folders WHERE user_id = ? AND type = 'personal' AND name = ?`,
+      [user.id, DEFAULT_PERSONAL_FOLDER_NAME]
+    );
+    if (existing) return existing.id;
+
+    const folderId = Math.random().toString(36).substr(2, 9);
+    const now = Math.floor(Date.now() / 1000);
+    await db.runAsync(
+      `INSERT INTO vault_folders (id, user_id, type, name, tags_json, sort_order, created_at, updated_at)
+       VALUES (?, ?, 'personal', ?, '[]', 0, ?, ?)`,
+      [folderId, user.id, DEFAULT_PERSONAL_FOLDER_NAME, now, now]
+    );
+    const vaultDir = new Directory(Paths.document, 'vault');
+    const folderDir = new Directory(vaultDir, folderId);
+    await folderDir.create({ intermediates: true, idempotent: true });
+    return folderId;
+  };
+
+  const loadArchivedTasks = async () => {
+    if (!user?.id) return;
+    try {
+      const db = await getDatabase();
+      const result = await db.getAllAsync<Task>(
+        `SELECT id, project_title, client_name, status, completed_at, created_at
+         FROM tasks WHERE user_id = ? AND pool = 'archived'
+         ORDER BY completed_at DESC`,
+        [user.id]
+      );
+      setArchivedTasks(result);
+    } catch (error) {
+      console.error('Error loading archived tasks:', error);
+    }
+  };
 
   const loadData = async () => {
     if (!user?.id) return;
     try {
       setLoading(true);
+      await ensurePersonalFolder();
       const vaultFolders = await getUserVaultFolders(user.id);
       setFolders(vaultFolders);
-      
       const { used } = await getUserStorageUsage(user.id);
       setStorageUsed(used);
-      
       if (selectedFolder) {
         const folderFiles = await getFolderFiles(selectedFolder.id);
         setFiles(folderFiles);
       }
+      await loadArchivedTasks();
     } catch (error) {
       console.error('Error loading vault:', error);
       Alert.alert('Error', 'Failed to load vault data');
@@ -83,7 +123,6 @@ export const VaultScreen = () => {
   const checkStorageLimit = (fileSize: number): boolean => {
     const usageAfter = storageUsed + fileSize;
     const usagePercent = (usageAfter / storageLimit) * 100;
-    
     if (usageAfter > storageLimit) {
       Alert.alert(
         'Storage Limit Reached',
@@ -91,7 +130,6 @@ export const VaultScreen = () => {
       );
       return false;
     }
-    
     if (usagePercent >= 95) {
       Alert.alert(
         'Storage Almost Full',
@@ -99,30 +137,37 @@ export const VaultScreen = () => {
       );
       return false;
     }
-    
     if (usagePercent >= 80) {
       Alert.alert(
         'Storage Warning',
         `You're at ${Math.floor(usagePercent)}% of your storage. Consider deleting unused files.`
       );
     }
-    
     return true;
   };
 
   const pickAndUploadFile = async () => {
-    if (!user?.id || !selectedFolder) return;
-    
+    if (!user?.id) return;
+    let targetFolderId: string;
+    if (selectedFolder) {
+      targetFolderId = selectedFolder.id;
+    } else {
+      const defaultId = await ensurePersonalFolder();
+      if (!defaultId) {
+        Alert.alert('Error', 'Could not create personal folder');
+        return;
+      }
+      targetFolderId = defaultId;
+      await loadData();
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images', 'videos'],
       allowsEditing: false,
       quality: 0.8,
     });
-    
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      
-      // Get file size using the new File API
       let fileSize = 0;
       try {
         const tempFile = new File(asset.uri);
@@ -131,31 +176,29 @@ export const VaultScreen = () => {
       } catch (e) {
         console.warn('Could not get file size:', e);
       }
-      
       if (!checkStorageLimit(fileSize)) return;
-      
-      // Create destination directory using new Directory API
+
       const vaultDir = new Directory(Paths.document, 'vault');
-      const folderDir = new Directory(vaultDir, selectedFolder.id);
-      
-      try {
-        // Create directories if they don't exist (idempotent: true means no error if exists)
-        await folderDir.create({ intermediates: true, idempotent: true });
-      } catch (e) {
-        console.warn('Directory creation warning:', e);
+      const folderDir = new Directory(vaultDir, targetFolderId);
+      await folderDir.create({ intermediates: true, idempotent: true });
+
+      const originalName = asset.fileName || `file_${Date.now()}`;
+      const ext = originalName.split('.').pop();
+      const baseName = originalName.substring(0, originalName.lastIndexOf('.'));
+      let fileName = originalName;
+      let counter = 1;
+      let destFile = new File(folderDir, fileName);
+      while (await destFile.exists) {
+        fileName = `${baseName}_${counter}.${ext}`;
+        destFile = new File(folderDir, fileName);
+        counter++;
       }
-      
-      const fileName = asset.fileName || `file_${Date.now()}.${asset.type === 'video' ? 'mp4' : 'jpg'}`;
-      const destFile = new File(folderDir, fileName);
-      
-      // Copy the file using the new File API
+
       const sourceFile = new File(asset.uri);
       await sourceFile.copy(destFile);
-      
-      // Get final file info
       const destInfo = await destFile.info();
-      
-      await saveFile(user.id, selectedFolder.id, {
+
+      await saveFile(user.id, targetFolderId, {
         name: fileName,
         file_type: asset.type === 'video' ? 'video' : 'image',
         local_path: destFile.uri,
@@ -163,7 +206,6 @@ export const VaultScreen = () => {
         width_px: asset.width,
         height_px: asset.height,
       });
-      
       await loadData();
       Alert.alert('Success', 'File uploaded to vault');
     }
@@ -180,19 +222,16 @@ export const VaultScreen = () => {
           style: 'destructive',
           onPress: async () => {
             if (!user?.id) return;
-            
-            // Delete physical file using new File API
             if (file.local_path) {
               try {
                 const fileToDelete = new File(file.local_path);
-                if (await fileToDelete.exists()) {
+                if (fileToDelete.exists) {
                   await fileToDelete.delete();
                 }
               } catch (e) {
                 console.warn('Could not delete physical file:', e);
               }
             }
-            
             await deleteFile(file.id, user.id);
             await loadData();
           },
@@ -203,32 +242,56 @@ export const VaultScreen = () => {
 
   const createNewFolder = async () => {
     if (!user?.id || !newFolderName.trim()) return;
-    
     const db = await getDatabase();
     const folderId = Math.random().toString(36).substr(2, 9);
     const now = Math.floor(Date.now() / 1000);
-    
     await db.runAsync(
       `INSERT INTO vault_folders (id, user_id, type, name, tags_json, sort_order, created_at, updated_at)
        VALUES (?, ?, 'personal', ?, '[]', 0, ?, ?)`,
       [folderId, user.id, newFolderName.trim(), now, now]
     );
-    
-    // Also create physical directory using new Directory API
-    try {
-      const vaultDir = new Directory(Paths.document, 'vault');
-      const newFolderDir = new Directory(vaultDir, folderId);
-      await newFolderDir.create({ intermediates: true, idempotent: true });
-    } catch (e) {
-      console.warn('Could not create physical folder:', e);
-    }
-    
+    const vaultDir = new Directory(Paths.document, 'vault');
+    const newFolderDir = new Directory(vaultDir, folderId);
+    await newFolderDir.create({ intermediates: true, idempotent: true });
     setNewFolderName('');
     setShowNewFolderModal(false);
     await loadData();
   };
 
+  const reactivateTask = async (taskId: string) => {
+    Alert.alert(
+      'Reactivate Task',
+      'This task will be moved back to your working list. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reactivate',
+          onPress: async () => {
+            try {
+              const db = await getDatabase();
+              await db.runAsync(
+                `UPDATE tasks SET status = 'active', pool = 'active', completed_at = NULL WHERE id = ?`,
+                [taskId]
+              );
+              // Also move vault folder back to task_active
+              await db.runAsync(
+                `UPDATE vault_folders SET type = 'task_active', archived_at = NULL WHERE task_id = ? AND type = 'task_archived'`,
+                [taskId]
+              );
+              await loadData();
+              Alert.alert('Success', 'Task reactivated and moved to Working List');
+            } catch (error) {
+              console.error('Error reactivating task:', error);
+              Alert.alert('Error', 'Failed to reactivate task');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const formatFileSize = (bytes: number): string => {
+    if (!bytes) return '0 B';
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -239,17 +302,36 @@ export const VaultScreen = () => {
       style={[styles.folderCard, selectedFolder?.id === item.id && styles.folderCardSelected]}
       onPress={() => setSelectedFolder(item)}
     >
-      <Text style={styles.folderIcon}>{POOL_ICONS[item.type as PoolType] || '📄'}</Text>
+      <Text style={styles.folderIcon}>
+        {item.type === 'personal' ? '📁' : item.type === 'task_active' ? '🎨' : '📦'}
+      </Text>
       <Text style={styles.folderName} numberOfLines={1}>{item.name}</Text>
-      <Text style={styles.folderType}>{item.type.replace('_', ' ')}</Text>
+      <Text style={styles.folderType}>
+        {item.type === 'personal' ? 'Personal' : item.type === 'task_active' ? 'Active Task' : 'Archived'}
+      </Text>
     </TouchableOpacity>
   );
 
   const renderFile = ({ item }: { item: VaultFile }) => (
     <TouchableOpacity
       style={styles.fileCard}
-      onPress={() => {
-        Alert.alert('File', `File: ${item.name}\nSize: ${formatFileSize(item.file_size_bytes || 0)}`);
+      onPress={async () => {
+        if (item.file_type === 'image' && item.local_path) {
+          try {
+            const fileObj = new File(item.local_path);
+            if (fileObj.exists) {
+              setSelectedImage(item.local_path);
+              setImageModalVisible(true);
+            } else {
+              Alert.alert('File Not Found', 'The file no longer exists on device.');
+            }
+          } catch (error) {
+            console.error('Error opening image:', error);
+            Alert.alert('Error', 'Could not open file');
+          }
+        } else {
+          Alert.alert('File', `${item.name}\nSize: ${formatFileSize(item.file_size_bytes || 0)}`);
+        }
       }}
       onLongPress={() => handleDeleteFile(item)}
     >
@@ -263,6 +345,22 @@ export const VaultScreen = () => {
       <TouchableOpacity onPress={() => handleDeleteFile(item)} style={styles.deleteButton}>
         <Ionicons name="trash-outline" size={20} color={COLORS.danger || '#EF4444'} />
       </TouchableOpacity>
+    </TouchableOpacity>
+  );
+
+  const renderArchivedTask = ({ item }: { item: Task }) => (
+    <TouchableOpacity style={styles.archivedTaskCard} onPress={() => reactivateTask(item.id)}>
+      <View style={styles.archivedTaskIcon}>
+        <Text style={styles.archivedTaskIconText}>📄</Text>
+      </View>
+      <View style={styles.archivedTaskInfo}>
+        <Text style={styles.archivedTaskTitle} numberOfLines={1}>{item.project_title}</Text>
+        <Text style={styles.archivedTaskClient}>{item.client_name}</Text>
+        <Text style={styles.archivedTaskDate}>
+          Completed: {new Date((item.completed_at || item.created_at) * 1000).toLocaleDateString()}
+        </Text>
+      </View>
+      <Ionicons name="refresh-outline" size={20} color={COLORS.primary} />
     </TouchableOpacity>
   );
 
@@ -293,55 +391,77 @@ export const VaultScreen = () => {
         )}
       </View>
 
-      {/* Folders Section */}
+      {/* Upload button */}
+      <TouchableOpacity style={styles.uploadButton} onPress={pickAndUploadFile}>
+        <Ionicons name="cloud-upload-outline" size={20} color="#FFFFFF" />
+        <Text style={styles.uploadButtonText}>Upload to {selectedFolder ? selectedFolder.name : 'Personal'}</Text>
+      </TouchableOpacity>
+
+      {/* Personal Folders Section */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Folders</Text>
+        <Text style={styles.sectionTitle}>Personal Folders</Text>
         <TouchableOpacity onPress={() => setShowNewFolderModal(true)}>
           <Text style={styles.addButton}>+ New Folder</Text>
         </TouchableOpacity>
       </View>
 
       <FlatList
-        data={folders}
+        data={folders.filter(f => f.type === 'personal')}
         horizontal
         showsHorizontalScrollIndicator={false}
         renderItem={renderFolder}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.folderList}
-        ListEmptyComponent={
-          <Text style={styles.emptyText}>No folders yet. Create your first folder!</Text>
-        }
+        ListEmptyComponent={<Text style={styles.emptyText}>No personal folders. Create one!</Text>}
       />
 
-      {/* Files Section */}
+      {/* Task Folders Section */}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Task Folders</Text>
+      </View>
+
+      <FlatList
+        data={folders.filter(f => f.type === 'task_active')}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        renderItem={renderFolder}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.folderList}
+        ListEmptyComponent={<Text style={styles.emptyText}>No active task folders</Text>}
+      />
+
+      {/* Files in selected folder */}
       {selectedFolder && (
         <>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>{selectedFolder.name}</Text>
-            <TouchableOpacity onPress={pickAndUploadFile}>
-              <Text style={styles.addButton}>+ Upload</Text>
-            </TouchableOpacity>
           </View>
-
           <FlatList
             data={files}
             renderItem={renderFile}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.fileList}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No files in this folder. Tap + to upload.</Text>
-            }
+            ListEmptyComponent={<Text style={styles.emptyText}>No files in this folder</Text>}
           />
         </>
       )}
 
+      {/* Archived Tasks Section */}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Archived Tasks</Text>
+        <Text style={styles.sectionSubtitle}>Tap to reactivate</Text>
+      </View>
+
+      <FlatList
+        data={archivedTasks}
+        renderItem={renderArchivedTask}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.archivedList}
+        ListEmptyComponent={<Text style={styles.emptyText}>No archived tasks</Text>}
+      />
+
       {/* New Folder Modal */}
-      <Modal
-        visible={showNewFolderModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowNewFolderModal(false)}
-      >
+      <Modal visible={showNewFolderModal} transparent animationType="slide" onRequestClose={() => setShowNewFolderModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Create New Folder</Text>
@@ -354,20 +474,24 @@ export const VaultScreen = () => {
               autoFocus
             />
             <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setShowNewFolderModal(false)}
-              >
+              <TouchableOpacity style={[styles.modalButton, styles.cancelButton]} onPress={() => setShowNewFolderModal(false)}>
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.createButton]}
-                onPress={createNewFolder}
-              >
+              <TouchableOpacity style={[styles.modalButton, styles.createButton]} onPress={createNewFolder}>
                 <Text style={styles.createButtonText}>Create</Text>
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* Image Modal */}
+      <Modal visible={imageModalVisible} transparent animationType="fade" onRequestClose={() => setImageModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity style={styles.modalCloseButton} onPress={() => setImageModalVisible(false)}>
+            <Text style={styles.modalCloseText}>✕</Text>
+          </TouchableOpacity>
+          {selectedImage && <Image source={{ uri: selectedImage }} style={styles.fullscreenImage} resizeMode="contain" />}
         </View>
       </Modal>
 
@@ -381,205 +505,132 @@ export const VaultScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background || '#F9FAFB',
-  },
+  container: { flex: 1, backgroundColor: '#F9FAFB' },
   header: {
     paddingTop: 60,
-    paddingHorizontal: SPACING?.md || 16,
-    paddingBottom: SPACING?.md || 16,
-    backgroundColor: COLORS.surface || '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border || '#E5E7EB',
+    borderBottomColor: '#E5E7EB',
   },
-  title: {
-    ...TYPOGRAPHY?.h1 || { fontSize: 28, fontWeight: '700' },
-    color: COLORS.text || '#111827',
-  },
+  title: { fontSize: 28, fontWeight: '700', color: '#111827' },
   storageCard: {
-    margin: SPACING?.md || 16,
-    padding: SPACING?.md || 16,
-    backgroundColor: COLORS.surface || '#FFFFFF',
-    borderRadius: RADIUS?.lg || 12,
+    margin: 16,
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: COLORS.border || '#E5E7EB',
+    borderColor: '#E5E7EB',
   },
-  storageHeader: {
+  storageHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  storageTitle: { fontSize: 14, fontWeight: '600', color: '#111827' },
+  storageText: { fontSize: 12, color: '#6B7280' },
+  progressBar: { height: 6, backgroundColor: '#F3F4F6', borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: '#6366F1', borderRadius: 3 },
+  storageWarning: { marginTop: 8, fontSize: 12, color: '#F59E0B' },
+  uploadButton: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: SPACING?.xs || 8,
+    backgroundColor: '#6366F1',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
-  storageTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.text || '#111827',
-  },
-  storageText: {
-    fontSize: 12,
-    color: COLORS.textMuted || '#6B7280',
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: COLORS.surfaceHighlight || '#F3F4F6',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: COLORS.primary || '#6366F1',
-    borderRadius: 3,
-  },
-  storageWarning: {
-    marginTop: SPACING?.xs || 8,
-    fontSize: 12,
-    color: COLORS.warning || '#F59E0B',
-  },
+  uploadButtonText: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: SPACING?.md || 16,
-    marginTop: SPACING?.md || 16,
-    marginBottom: SPACING?.sm || 12,
+    paddingHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.text || '#111827',
-  },
-  addButton: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.primary || '#6366F1',
-  },
-  folderList: {
-    paddingHorizontal: SPACING?.md || 16,
-    gap: 12,
-  },
+  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#111827' },
+  sectionSubtitle: { fontSize: 12, color: '#6B7280' },
+  addButton: { fontSize: 14, fontWeight: '600', color: '#6366F1' },
+  folderList: { paddingHorizontal: 16, gap: 12, paddingBottom: 8 },
   folderCard: {
     width: 120,
-    padding: SPACING?.sm || 12,
-    backgroundColor: COLORS.surface || '#FFFFFF',
-    borderRadius: RADIUS?.lg || 12,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: COLORS.border || '#E5E7EB',
+    borderColor: '#E5E7EB',
     alignItems: 'center',
     marginRight: 12,
   },
-  folderCardSelected: {
-    borderColor: COLORS.primary || '#6366F1',
-    backgroundColor: COLORS.primaryDim || '#EEF2FF',
-  },
-  folderIcon: {
-    fontSize: 32,
-    marginBottom: SPACING?.xs || 8,
-  },
-  folderName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.text || '#111827',
-    textAlign: 'center',
-  },
-  folderType: {
-    fontSize: 10,
-    color: COLORS.textMuted || '#6B7280',
-    marginTop: 4,
-  },
-  fileList: {
-    padding: SPACING?.md || 16,
-    gap: 8,
-  },
+  folderCardSelected: { borderColor: '#6366F1', backgroundColor: '#EEF2FF' },
+  folderIcon: { fontSize: 32, marginBottom: 8 },
+  folderName: { fontSize: 14, fontWeight: '600', color: '#111827', textAlign: 'center' },
+  folderType: { fontSize: 10, color: '#6B7280', marginTop: 4 },
+  fileList: { padding: 16, gap: 8 },
   fileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: SPACING?.sm || 12,
-    backgroundColor: COLORS.surface || '#FFFFFF',
-    borderRadius: RADIUS?.md || 8,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: COLORS.border || '#E5E7EB',
+    borderColor: '#E5E7EB',
   },
-  fileIcon: {
-    fontSize: 28,
-    marginRight: SPACING?.sm || 12,
-  },
-  fileInfo: {
-    flex: 1,
-  },
-  fileName: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: COLORS.text || '#111827',
-  },
-  fileSize: {
-    fontSize: 11,
-    color: COLORS.textMuted || '#6B7280',
-    marginTop: 2,
-  },
-  deleteButton: {
-    padding: SPACING?.xs || 8,
-  },
-  emptyText: {
-    textAlign: 'center',
-    color: COLORS.textMuted || '#6B7280',
-    paddingVertical: 40,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
+  fileIcon: { fontSize: 28, marginRight: 12 },
+  fileInfo: { flex: 1 },
+  fileName: { fontSize: 14, fontWeight: '500', color: '#111827' },
+  fileSize: { fontSize: 11, color: '#6B7280', marginTop: 2 },
+  deleteButton: { padding: 8 },
+  archivedList: { padding: 16, gap: 12, paddingBottom: 40 },
+  archivedTaskCard: {
+    flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  modalContent: {
-    width: '80%',
-    backgroundColor: COLORS.surface || '#FFFFFF',
-    borderRadius: RADIUS?.lg || 12,
-    padding: SPACING?.lg || 24,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.text || '#111827',
-    marginBottom: SPACING?.md || 16,
-  },
+  archivedTaskIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  archivedTaskIconText: { fontSize: 24 },
+  archivedTaskInfo: { flex: 1 },
+  archivedTaskTitle: { fontSize: 16, fontWeight: '600', color: '#111827' },
+  archivedTaskClient: { fontSize: 13, color: '#6B7280', marginTop: 2 },
+  archivedTaskDate: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+  emptyText: { textAlign: 'center', color: '#6B7280', paddingVertical: 40 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { width: '80%', backgroundColor: '#FFFFFF', borderRadius: 12, padding: 24 },
+  modalTitle: { fontSize: 18, fontWeight: '600', color: '#111827', marginBottom: 16 },
   input: {
     borderWidth: 1,
-    borderColor: COLORS.border || '#E5E7EB',
-    borderRadius: RADIUS?.md || 8,
-    paddingHorizontal: SPACING?.sm || 12,
-    paddingVertical: SPACING?.sm || 12,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     fontSize: 16,
-    color: COLORS.text || '#111827',
-    marginBottom: SPACING?.md || 16,
+    color: '#111827',
+    marginBottom: 16,
   },
-  modalButtons: {
-    flexDirection: 'row',
-    gap: SPACING?.sm || 12,
-  },
-  modalButton: {
-    flex: 1,
-    paddingVertical: SPACING?.sm || 12,
-    borderRadius: RADIUS?.md || 8,
+  modalButtons: { flexDirection: 'row', gap: 12 },
+  modalButton: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
+  cancelButton: { backgroundColor: '#F3F4F6' },
+  cancelButtonText: { color: '#6B7280', fontWeight: '600' },
+  createButton: { backgroundColor: '#6366F1' },
+  createButtonText: { color: '#FFFFFF', fontWeight: '600' },
+  modalCloseButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
-  },
-  cancelButton: {
-    backgroundColor: COLORS.surfaceHighlight || '#F3F4F6',
-  },
-  cancelButtonText: {
-    color: COLORS.textMuted || '#6B7280',
-    fontWeight: '600',
-  },
-  createButton: {
-    backgroundColor: COLORS.primary || '#6366F1',
-  },
-  createButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'center',
-    alignItems: 'center',
   },
+  modalCloseText: { fontSize: 20, color: '#FFFFFF', fontWeight: '600' },
+  fullscreenImage: { width: '100%', height: '100%' },
+  loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
 });
